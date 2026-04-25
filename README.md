@@ -12,8 +12,10 @@ frame rate, with a 6:5 software divider so the tempo matches the original
 
 - [x] Phase 1 — PT3 playback (one bundled song)
 - [x] Phase 2 — song picker UI (auto-bundles every `.pt3` in `songs/`)
-- [ ] Phase 3 — PT2 support
-- [ ] Phase 4 — tracker UI (pattern grid, sample/ornament editors, save back to PT3)
+- [x] Phase 3 — PT2 + PT3 support via Bulba's universal PTxPlay driver
+- [x] Phase 3.5 — live AY visualisation (volume bars + slow colour wave)
+- [ ] Phase 4 — TS-PICO native loading (`.pt3` files from SD by filename)
+- [ ] Phase 5 — tracker UI (pattern grid, sample/ornament editors, save back to PT3)
 
 ## Build
 
@@ -38,14 +40,30 @@ make pt3-mvp SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"
 
 The output is a Spectrum-flavoured `.tap` (we target `+zx` because the
 upstream PT3 player needs SDCC and the `+ts2068` clib is sccz80-only).
-The TS2068 loads it cleanly. In zesarux:
+The same `.tap` works on both emulators and real hardware:
 
-```sh
-zesarux --machine ts2068 --tape build/pt3-player.tap
-```
+- **Emulators** (zesarux, FUSE): load `build/pt3-player.tap` directly.
+  ```sh
+  zesarux --machine ts2068 --tape build/pt3-player.tap
+  ```
+- **Real TS2068 + TS-PICO**: copy the `.tap` to the TS-PICO's SD card
+  and load it through the TS-PICO's tape-emulation interface. Native
+  TS-PICO file loading (loading individual `.pt3` files by filename
+  via the TPI protocol) is planned as a separate phase.
 
 Controls in the picker: `1`-`9` to play a song, `SPACE` to stop and return
 to the menu, `ENTER` to quit to BASIC.
+
+### Visualisation
+
+While a song plays the screen shows a live readout of PTxPlay's AY register
+buffer: three coloured volume bars (channels A/B/C, green-yellow-red gradient
+across the bar) plus a slow diagonal colour wash on the lower half.
+
+The wash is deliberately calm: phase advances at ~2 Hz (well under the 3 Hz
+photosensitivity threshold), the palette stays in saturated mid-tones with
+no black or white bands, and the border holds a single colour for the whole
+song. No flashing.
 
 ## Layout
 

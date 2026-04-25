@@ -21,6 +21,18 @@
 /* PTxPlay is shipped as a separate CODE block on the same tape; the TS2068
    tape loader puts it at its assembled origin ($C000). No runtime copy. */
 
+/* Set the TS2068 border colour (bits 0-2 of port $FE). */
+static void set_border(unsigned char c) __naked __z88dk_fastcall
+{
+    (void)c;
+__asm
+    ld   a,l
+    and  #0x07
+    out  (#0xFE),a
+    ret
+__endasm;
+}
+
 /* Provided by build/song_bundle.c (auto-generated): */
 struct song_entry {
     const unsigned char *data;
@@ -209,33 +221,82 @@ static void draw_now_playing(unsigned char idx)
     at(21, 0); puts_str("SPACE: stop");
 }
 
-/* Read PTxPlay's AYREGS buffer (post-Player_Decode, pre-PlayAY) and draw a
-   horizontal volume bar for each channel. AY amplitude is bits 0..3 of regs
-   8/9/10; bit 4 means "use envelope" -- we render that as 'E' instead of a
-   bar so it's visually distinct from a fixed 16-step volume.
-   Bar uses 16 cells; col 5 onwards (after "X: "). */
+/* Spectrum attribute layout: bit 7 FLASH, bit 6 BRIGHT, bits 5-3 PAPER,
+   bits 2-0 INK. Colors: 0 black 1 blue 2 red 3 magenta 4 green 5 cyan
+   6 yellow 7 white. */
+#define ATTR(paper, ink, bright)  (((paper) << 3) | (ink) | ((bright) ? 0x40 : 0))
+
+static void write_attr(unsigned char row, unsigned char col, unsigned char attr)
+{
+    *(unsigned char *)(0x5800 + row * 32 + col) = attr;
+}
+
+/* Volume-bar colors per cell index. First six cells green, next five
+   yellow, last five red -- loud channels light up red at the right end. */
+static const unsigned char bar_color[16] = {
+    ATTR(0, 4, 1), ATTR(0, 4, 1), ATTR(0, 4, 1),
+    ATTR(0, 4, 1), ATTR(0, 4, 1), ATTR(0, 4, 1),
+    ATTR(0, 6, 1), ATTR(0, 6, 1), ATTR(0, 6, 1),
+    ATTR(0, 6, 1), ATTR(0, 6, 1),
+    ATTR(0, 2, 1), ATTR(0, 2, 1), ATTR(0, 2, 1),
+    ATTR(0, 2, 1), ATTR(0, 2, 1),
+};
+
+/* Read PTxPlay's AYREGS buffer (post-Player_Decode, post-PlayAY) and draw a
+   coloured volume bar for each channel. AY amplitude is bits 0..3 of regs
+   8/9/10; bit 4 means "use envelope" -- we render that as 'ENV' in cyan. */
 static void draw_live_bars(void)
 {
     const unsigned char *regs = (const unsigned char *)AYREGS_ADDR;
     unsigned char ch;
     for (ch = 0; ch < 3; ch++) {
-        unsigned char amp = regs[8 + ch];
+        unsigned char amp   = regs[8 + ch];
         unsigned char level = amp & 0x0F;
         unsigned char env   = amp & 0x10;
+        unsigned char row   = 8 + ch;
         unsigned char i;
 
-        at(8 + ch, 5);
+        at(row, 5);
         if (env) {
-            putch('E');
-            putch('N');
-            putch('V');
+            putch('E'); putch('N'); putch('V');
             for (i = 3; i < 16; i++) putch(' ');
+            for (i = 0; i < 16; i++) write_attr(row, 5 + i, ATTR(0, 5, 1));
         } else {
             for (i = 0; i < 16; i++) {
-                putch(i < level ? 0x8F : ' ');   /* 0x8F = solid block UDG slot */
+                putch(i < level ? 0x8F : ' ');
+                write_attr(row, 5 + i,
+                           i < level ? bar_color[i] : ATTR(0, 0, 0));
             }
         }
     }
+}
+
+/* Slow diagonal colour wash on rows 12-20.
+   Photosensitivity safety: wave_phase advances ONLY once every 30 frames
+   (= ~2 Hz on the TS2068's 60 Hz frame timer). Even the fastest perceived
+   motion -- a single cell changing hue -- happens at 2 Hz, well below
+   the 3 Hz flash threshold. We also drop BRIGHT and skip black/white,
+   so neighbouring cells never flip across high contrast.
+
+   Palette: blue / magenta / cyan / green / yellow / red, in that visual
+   order. No black or bright-white bands -> no harsh transitions. */
+static unsigned char wave_phase;
+static unsigned char wave_tick;
+
+static const unsigned char wave_palette[6] = { 1, 3, 5, 4, 6, 2 };
+
+static void draw_color_wave(void)
+{
+    unsigned int addr = 0x5800 + 12 * 32;
+    unsigned char r, c;
+    for (r = 0; r < 9; r++) {
+        for (c = 0; c < 32; c++) {
+            unsigned char idx = (r + (c >> 1) + wave_phase) % 6;
+            *(unsigned char *)addr = ATTR(wave_palette[idx], 0, 0);
+            addr++;
+        }
+    }
+    if (++wave_tick >= 30) { wave_tick = 0; wave_phase++; }
 }
 
 /* ---- play loop -------------------------------------------------------------- */
@@ -254,17 +315,21 @@ static void play_song(unsigned char idx)
 
     draw_now_playing(idx);
 
+    wave_phase = 0; wave_tick = 0;
+    set_border(1);                /* solid blue border, fixed for the whole song */
     for (;;) {
         intrinsic_halt();
         if (++divider == 6) {
             divider = 0;
         } else {
             PTx_play();
-            draw_live_bars();   /* read AYREGS after Player_Decode, before PlayAY pushes them out */
+            draw_live_bars();
         }
+        draw_color_wave();
 
         if (key_space()) break;
     }
+    set_border(7);                /* white -- BASIC's default background */
 
     PTx_mute();
     while (key_space()) intrinsic_halt();

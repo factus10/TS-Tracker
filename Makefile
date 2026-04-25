@@ -87,7 +87,7 @@ $(BUILDDIR)/ptxplay.bin $(BUILDDIR)/ptxplay.sym: $(BUILDDIR)/PTxPlay.asm
 
 $(BUILDDIR)/ptxplay_addrs.h: $(BUILDDIR)/ptxplay.sym tools/bin_to_c.py
 	python3 tools/bin_to_c.py $(BUILDDIR)/ptxplay.sym \
-	    $(BUILDDIR)/ptxplay_addrs.h START SETUP MUTE INIT PLAY VARSEND AYREGS
+	    $(BUILDDIR)/ptxplay_addrs.h START SETUP MUTE INIT PLAY VARSEND AYREGS DelyCnt
 
 # ---- pt3-player (universal PT2/PT3 picker) ----------------------------------
 pt3-player: $(BUILDDIR)/pt3-player.tap
