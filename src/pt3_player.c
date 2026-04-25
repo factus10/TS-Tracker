@@ -201,7 +201,41 @@ static void draw_now_playing(unsigned char idx)
         at(5, 2); puts_str("by ");
         puts_str_n(song_table[idx].author, 25);
     }
+    /* Static labels for the live readout. The bars themselves get drawn each
+       frame by draw_live_bars(). */
+    at(8,  2); puts_str("A: ");
+    at(9,  2); puts_str("B: ");
+    at(10, 2); puts_str("C: ");
     at(21, 0); puts_str("SPACE: stop");
+}
+
+/* Read PTxPlay's AYREGS buffer (post-Player_Decode, pre-PlayAY) and draw a
+   horizontal volume bar for each channel. AY amplitude is bits 0..3 of regs
+   8/9/10; bit 4 means "use envelope" -- we render that as 'E' instead of a
+   bar so it's visually distinct from a fixed 16-step volume.
+   Bar uses 16 cells; col 5 onwards (after "X: "). */
+static void draw_live_bars(void)
+{
+    const unsigned char *regs = (const unsigned char *)AYREGS_ADDR;
+    unsigned char ch;
+    for (ch = 0; ch < 3; ch++) {
+        unsigned char amp = regs[8 + ch];
+        unsigned char level = amp & 0x0F;
+        unsigned char env   = amp & 0x10;
+        unsigned char i;
+
+        at(8 + ch, 5);
+        if (env) {
+            putch('E');
+            putch('N');
+            putch('V');
+            for (i = 3; i < 16; i++) putch(' ');
+        } else {
+            for (i = 0; i < 16; i++) {
+                putch(i < level ? 0x8F : ' ');   /* 0x8F = solid block UDG slot */
+            }
+        }
+    }
 }
 
 /* ---- play loop -------------------------------------------------------------- */
@@ -222,8 +256,12 @@ static void play_song(unsigned char idx)
 
     for (;;) {
         intrinsic_halt();
-        if (++divider == 6) divider = 0;
-        else PTx_play();
+        if (++divider == 6) {
+            divider = 0;
+        } else {
+            PTx_play();
+            draw_live_bars();   /* read AYREGS after Player_Decode, before PlayAY pushes them out */
+        }
 
         if (key_space()) break;
     }
