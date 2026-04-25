@@ -128,10 +128,15 @@ __endasm;
 static unsigned char key_space(void) { return read_row(0x7F) & 0x01; }
 static unsigned char key_enter(void) { return read_row(0xBF) & 0x01; }
 
+/* Sinclair keyboard matrix:
+     row $F7: 1, 2, 3, 4, 5  (bits 0..4)
+     row $EF: 0, 9, 8, 7, 6  (bits 0..4)
+   Some ZX/TS-2068 references mislabel the second row as $FB; $FB is
+   actually Q-W-E-R-T. Reading the wrong row makes 6-9 silently dead. */
 static unsigned char key_digit(void)
 {
     unsigned char a = read_row(0xF7);
-    unsigned char b = read_row(0xFB);
+    unsigned char b = read_row(0xEF);
     if (a & 0x01) return 1;
     if (a & 0x02) return 2;
     if (a & 0x04) return 3;
@@ -206,10 +211,12 @@ static void play_song(unsigned char idx)
     unsigned char divider = 0;
     const struct song_entry *e = &song_table[idx];
 
-    /* PTxPlay's PT3 path subtracts 100 from the song address internally
-       (matching mvac7's convention); the PT2 path takes the raw start. */
+    /* PTxPlay takes the raw module start for both PT2 and PT3. The PT3
+       path internally ADDS 100 to find the speed byte (file offset 100);
+       the PT2 path reads directly from the start. (Note: mvac7's PT3
+       player used the opposite convention -- it subtracted 100.) */
     PTx_setup = e->fmt ? 0x02 : 0x00;     /* bit 1: 1 = PT2, 0 = PT3 */
-    PTx_init((unsigned int)(e->data + (e->fmt ? 0 : 100)));
+    PTx_init((unsigned int)e->data);
 
     draw_now_playing(idx);
 

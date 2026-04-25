@@ -51,8 +51,9 @@ def patch_basic(body):
     line_no  = struct.unpack('>H', body[0:2])[0]
     line_len = struct.unpack('<H', body[2:4])[0]
     line     = body[4:4+line_len]
-    # Find the AF (CODE token) of the first LOAD ""CODE clause and insert after.
-    af = line.find(0xAF)
+    # Find the LAST CODE token so successive append calls nest correctly:
+    # each new LOAD ""CODE clause goes after the most recently added one.
+    af = line.rfind(0xAF)
     if af < 0:
         sys.exit("could not find existing 'CODE' token in BASIC loader")
     new_line = line[:af+1] + insert + line[af+1:]
@@ -80,28 +81,13 @@ def main():
     out_tap_path = pathlib.Path(sys.argv[5])
 
     blocks = parse_tap(in_tap_path.read_bytes())
-    if len(blocks) != 4:
-        sys.exit(f"expected 4 blocks (BASIC hdr/body + CODE hdr/body); got {len(blocks)}")
+    if len(blocks) < 4 or len(blocks) % 2 != 0:
+        sys.exit(f"expected even >=4 blocks (BASIC + N CODE pairs); got {len(blocks)}")
 
-    bas_hdr, bas_body, code_hdr, code_body = blocks
+    bas_hdr, bas_body = blocks[0], blocks[1]
+    existing_code_blocks = blocks[2:]   # any number of CODE hdr/body pairs
 
-    # Patch BASIC body.
-    new_bas_body = patch_basic(bas_body)
-    # Update flag byte at start (was 0xFF for body) -- the body bytes have it
-    # as a leading byte? no: for tape format ID block 0xFF + payload + xor.
-    # parse_tap gave us payload only. Let's keep the leading flag and trailing
-    # checksum convention: actually parse_tap returns the full block (flag +
-    # payload + xor). We patched the inside; need to redo the flag/xor.
-    # Reconstruct: flag is body[0] which we kept. Recompute xor.
-    new_bas_body_full = new_bas_body            # already starts with line# (no flag)
-    # Wait -- the BASIC body block starts with 0xFF flag. Let's check.
-    # blocks from parse_tap include the flag byte too.
-    # Original body: 0xFF + 30 bytes line + 0x_xor. We got body = full block.
-    # So bas_body[0] = 0xFF, bas_body[1:-1] = line bytes, bas_body[-1] = xor.
-    # Re-do with that in mind:
-    pass
-
-    # Re-extract correctly using full-block convention.
+    # Patch BASIC body: each block is flag (0xFF) + line bytes + 1-byte xor.
     flag = bas_body[0]
     line_bytes = bas_body[1:-1]
     new_line_bytes = patch_basic(line_bytes)
@@ -125,9 +111,11 @@ def main():
     body_inner = bytes([0xFF]) + new_code_payload
     new_code_body = body_inner + bytes([checksum(body_inner)])
 
-    out_blocks = [new_bas_hdr, new_bas_body, code_hdr, code_body, new_code_hdr, new_code_body]
+    out_blocks = [new_bas_hdr, new_bas_body, *existing_code_blocks,
+                  new_code_hdr, new_code_body]
     out_tap_path.write_bytes(emit_tap(out_blocks))
-    print(f'wrote {out_tap_path}: 6 blocks, total {sum(len(b) for b in out_blocks) + 2*6} bytes')
+    print(f'wrote {out_tap_path}: {len(out_blocks)} blocks, '
+          f'total {sum(len(b) for b in out_blocks) + 2*len(out_blocks)} bytes')
 
 if __name__ == '__main__':
     main()

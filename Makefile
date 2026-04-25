@@ -32,13 +32,17 @@ AY_SRCS    = $(SRCDIR)/ay_ts2068.c
 # Single-song MVP still uses mvac7's C-only PT3 player.
 PT3_SRCS   = $(SRCDIR)/PT3player.c $(AY_SRCS)
 
-# Picker bundles songs from songs/. Currently restricted to .pt2 files because
-# our universal-player binary plus 6 full-size songs spills past $C000 where
-# CODE block 2 (PTxPlay) lands at runtime, clobbering anything CODE block 1
-# placed there. PT2-only fits comfortably below $C000. PT3 support comes back
-# once we add per-song tape blocks (Phase 3).
-SONGS_DIR ?= songs
-SONGS     := $(sort $(wildcard $(SONGS_DIR)/*.pt2))
+# Picker bundles every .pt2 / .pt3 in songs/. Songs are split between two
+# memory regions at runtime:
+#   * "low" group:  embedded as const arrays in the C binary (lives below $C000)
+#   * "high" group: separate flat tape block, loaded at $CA14 (just above PTxPlay)
+# The split is greedy by file order; whatever doesn't fit in either cap is
+# dropped with a warning at build time.
+SONGS_DIR    ?= songs
+SONGS        := $(sort $(wildcard $(SONGS_DIR)/*.pt2) $(wildcard $(SONGS_DIR)/*.pt3))
+LOW_SONG_CAP ?= 12288         # 12 KB embedded in main C binary
+HIGH_SONG_CAP?= 13312         # 13 KB above PTxPlay ($CA14..~$FE13)
+HIGH_SONG_BASE?= CA14         # hex; matches the LOAD address of the high block
 
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
@@ -92,16 +96,19 @@ pt3-player: $(BUILDDIR)/pt3-player.tap
 # Stamp re-runs whenever any source song or the bundle tool changes.
 $(BUILDDIR)/songs.stamp: $(MAKEFILE_LIST) tools/build_song_bundle.py | $(BUILDDIR)
 	@rm -rf $(BUILDDIR)/songs_staged && mkdir -p $(BUILDDIR)/songs_staged
-	@i=0; for f in $(SONGS_DIR)/*.pt2; do \
+	@i=0; for f in $(SONGS_DIR)/*.pt2 $(SONGS_DIR)/*.pt3; do \
 	    [ -f "$$f" ] || continue; \
-	    cp "$$f" "$(BUILDDIR)/songs_staged/song_$$(printf '%02d' $$i).pt2"; \
+	    ext=$${f##*.}; \
+	    cp "$$f" "$(BUILDDIR)/songs_staged/song_$$(printf '%02d' $$i).$$ext"; \
 	    i=$$((i+1)); \
 	done
-	python3 tools/build_song_bundle.py $(BUILDDIR)/song_bundle.c \
-	    $(BUILDDIR)/songs_staged/*.pt2
+	python3 tools/build_song_bundle.py \
+	    $(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_high.bin \
+	    $(HIGH_SONG_BASE) $(LOW_SONG_CAP) $(HIGH_SONG_CAP) \
+	    $(BUILDDIR)/songs_staged/*
 	@touch $@
 
-$(BUILDDIR)/song_bundle.c: $(BUILDDIR)/songs.stamp ;
+$(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_high.bin: $(BUILDDIR)/songs.stamp ;
 
 $(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) \
                                   $(BUILDDIR)/song_bundle.c \
@@ -119,14 +126,28 @@ $(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) \
 	    mv $(BUILDDIR)/pt3-player-base.tap.tmp $(BUILDDIR)/pt3-player-base.tap; \
 	fi
 
-# Append PTxPlay as a second CODE block; the TS2068 tape loader will put it
-# at its assembled origin ($C000) without any runtime copy.
-$(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/ptxplay.bin tools/append_code_block.py
+# Append two extra CODE blocks: PTxPlay (loads at $C000) and the high song
+# bundle (loads at $CA14). Each call to append_code_block.py adds one block
+# and inserts a matching `LOAD ""CODE` clause into the BASIC loader, so the
+# final tape has three LOAD ""CODE statements running in sequence.
+$(BUILDDIR)/pt3-player-stage1.tap: $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/ptxplay.bin tools/append_code_block.py
 	python3 tools/append_code_block.py \
 	    $(BUILDDIR)/pt3-player-base.tap \
 	    $(BUILDDIR)/ptxplay.bin \
 	    49152 ptxplay \
-	    $(BUILDDIR)/pt3-player.tap
+	    $(BUILDDIR)/pt3-player-stage1.tap
+
+$(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/songs_high.bin tools/append_code_block.py
+	@if [ -s $(BUILDDIR)/songs_high.bin ]; then \
+	    python3 tools/append_code_block.py \
+	        $(BUILDDIR)/pt3-player-stage1.tap \
+	        $(BUILDDIR)/songs_high.bin \
+	        51732 songs \
+	        $(BUILDDIR)/pt3-player.tap; \
+	else \
+	    cp $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/pt3-player.tap; \
+	    echo "  (high song bundle empty -- no third CODE block)"; \
+	fi
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):
