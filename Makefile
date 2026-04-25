@@ -1,8 +1,10 @@
 # =============================================================================
-# TS Tracker — z88dk build
+# TS Tracker -- z88dk build
 #
 # Targets:
-#   make smoketest    Build the AY sanity-test tape
+#   make pt3-player   Universal PT2/PT3 picker tape (primary build)
+#   make smoketest    AY-3-8912 sanity-check tape
+#   make pt3-mvp      Single-song MVP (legacy, mvac7 PT3 player)
 #   make clean        Remove build outputs
 # =============================================================================
 
@@ -20,22 +22,26 @@ COMPILER ?= -compiler=sdcc
 CLIB     ?= -clib=sdcc_iy
 OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 
-CFLAGS   = $(TARGET) $(COMPILER) $(CLIB) $(OPT) -DTS2068 -Isrc
+CFLAGS   = $(TARGET) $(COMPILER) $(CLIB) $(OPT) -DTS2068 -Isrc -Ibuild
 
 BUILDDIR = build
 SRCDIR   = src
 
-AY_SRCS  = $(SRCDIR)/ay_ts2068.c
+AY_SRCS    = $(SRCDIR)/ay_ts2068.c
 
-# Pick which .pt3 to bundle into pt3-mvp. Override on the command line:
-#   make pt3-mvp SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"
-SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
+# Single-song MVP still uses mvac7's C-only PT3 player.
+PT3_SRCS   = $(SRCDIR)/PT3player.c $(AY_SRCS)
 
-# pt3-player bundles all PT3 files in songs/ into a tape with a picker UI.
+# Picker bundles songs from songs/. Currently restricted to .pt2 files because
+# our universal-player binary plus 6 full-size songs spills past $C000 where
+# CODE block 2 (PTxPlay) lands at runtime, clobbering anything CODE block 1
+# placed there. PT2-only fits comfortably below $C000. PT3 support comes back
+# once we add per-song tape blocks (Phase 3).
 SONGS_DIR ?= songs
-SONGS     := $(sort $(wildcard $(SONGS_DIR)/*.pt3))
+SONGS     := $(sort $(wildcard $(SONGS_DIR)/*.pt2))
 
-PT3_SRCS = $(SRCDIR)/PT3player.c $(AY_SRCS)
+# Pick which .pt3 to bundle into pt3-mvp.
+SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
 
 .PHONY: all smoketest pt3-mvp pt3-player clean
 
@@ -50,10 +56,9 @@ $(BUILDDIR)/smoketest.tap: $(SRCDIR)/smoketest.c $(AY_SRCS) $(SRCDIR)/ay_ts2068.
 	    -o $(BUILDDIR)/smoketest \
 	    -create-app
 
-# ---- pt3-mvp -----------------------------------------------------------------
+# ---- pt3-mvp (legacy, single-song mvac7 PT3 player) -------------------------
 pt3-mvp: $(BUILDDIR)/pt3-mvp.tap
 
-# Stage the chosen .pt3 to a path without spaces so make's dep tracking works.
 $(BUILDDIR)/song.pt3: | $(BUILDDIR)
 	cp "$(SONG)" $(BUILDDIR)/song.pt3
 
@@ -68,31 +73,60 @@ $(BUILDDIR)/pt3-mvp.tap: $(SRCDIR)/pt3_mvp.c $(PT3_SRCS) $(BUILDDIR)/song.c \
 	    -o $(BUILDDIR)/pt3-mvp \
 	    -create-app
 
-# ---- pt3-player (multi-song picker) -----------------------------------------
+# ---- PTxPlay pipeline (universal PT1/PT2/PT3 driver by S.V. Bulba) -----------
+# Transform vendor source -> sjasmplus -> flat .bin -> embedded C blob.
+$(BUILDDIR)/PTxPlay.asm: vendor/PTxPlay/PTxPlay.asm tools/build_ptxplay_asm.py | $(BUILDDIR)
+	python3 tools/build_ptxplay_asm.py
+
+$(BUILDDIR)/ptxplay.bin $(BUILDDIR)/ptxplay.sym: $(BUILDDIR)/PTxPlay.asm
+	cd $(BUILDDIR) && sjasmplus PTxPlay.asm --raw=ptxplay.bin --sym=ptxplay.sym
+
+$(BUILDDIR)/ptxplay_addrs.h: $(BUILDDIR)/ptxplay.sym tools/bin_to_c.py
+	python3 tools/bin_to_c.py $(BUILDDIR)/ptxplay.sym \
+	    $(BUILDDIR)/ptxplay_addrs.h START SETUP MUTE INIT PLAY VARSEND
+
+# ---- pt3-player (universal PT2/PT3 picker) ----------------------------------
 pt3-player: $(BUILDDIR)/pt3-player.tap
 
-# Bundle every .pt3 in songs/ into one C source. Stage to no-space names
-# in build/songs_staged/ first so the build never has to deal with shell
-# quoting around filenames. The stamp re-runs whenever any source .pt3
-# changes (modification times propagate through the staging step).
+# Stage every song to no-space filenames so the build never has to quote.
+# Stamp re-runs whenever any source song or the bundle tool changes.
 $(BUILDDIR)/songs.stamp: $(MAKEFILE_LIST) tools/build_song_bundle.py | $(BUILDDIR)
 	@rm -rf $(BUILDDIR)/songs_staged && mkdir -p $(BUILDDIR)/songs_staged
-	@i=0; for f in $(SONGS_DIR)/*.pt3; do \
-	    cp "$$f" "$(BUILDDIR)/songs_staged/song_$$(printf '%02d' $$i).pt3"; \
+	@i=0; for f in $(SONGS_DIR)/*.pt2; do \
+	    [ -f "$$f" ] || continue; \
+	    cp "$$f" "$(BUILDDIR)/songs_staged/song_$$(printf '%02d' $$i).pt2"; \
 	    i=$$((i+1)); \
 	done
-	python3 tools/build_song_bundle.py $(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_staged/*.pt3
+	python3 tools/build_song_bundle.py $(BUILDDIR)/song_bundle.c \
+	    $(BUILDDIR)/songs_staged/*.pt2
 	@touch $@
 
 $(BUILDDIR)/song_bundle.c: $(BUILDDIR)/songs.stamp ;
 
-$(BUILDDIR)/pt3-player.tap: $(SRCDIR)/pt3_player.c $(PT3_SRCS) $(BUILDDIR)/song_bundle.c \
-                            $(SRCDIR)/ay_ts2068.h $(SRCDIR)/PT3player.h \
-                            $(SRCDIR)/PT3player_NoteTable1.h | $(BUILDDIR)
+$(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) \
+                                  $(BUILDDIR)/song_bundle.c \
+                                  $(BUILDDIR)/ptxplay_addrs.h \
+                                  $(SRCDIR)/ay_ts2068.h | $(BUILDDIR)
 	$(ZCC) $(CFLAGS) \
-	    $(SRCDIR)/pt3_player.c $(PT3_SRCS) $(BUILDDIR)/song_bundle.c \
-	    -o $(BUILDDIR)/pt3-player \
+	    $(SRCDIR)/pt3_player.c $(AY_SRCS) $(BUILDDIR)/song_bundle.c \
+	    -o $(BUILDDIR)/pt3-player-base \
 	    -create-app
+	mv $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/pt3-player-base.tap.tmp || true
+	@if [ -f $(BUILDDIR)/pt3-player-base ]; then \
+	    mv $(BUILDDIR)/pt3-player-base $(BUILDDIR)/pt3-player-base.bin || true; \
+	fi
+	@if [ -f $(BUILDDIR)/pt3-player-base.tap.tmp ]; then \
+	    mv $(BUILDDIR)/pt3-player-base.tap.tmp $(BUILDDIR)/pt3-player-base.tap; \
+	fi
+
+# Append PTxPlay as a second CODE block; the TS2068 tape loader will put it
+# at its assembled origin ($C000) without any runtime copy.
+$(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/ptxplay.bin tools/append_code_block.py
+	python3 tools/append_code_block.py \
+	    $(BUILDDIR)/pt3-player-base.tap \
+	    $(BUILDDIR)/ptxplay.bin \
+	    49152 ptxplay \
+	    $(BUILDDIR)/pt3-player.tap
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):
