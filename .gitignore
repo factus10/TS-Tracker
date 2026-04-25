@@ -1,0 +1,11 @@
+# build outputs and scratch
+/build/
+/work/
+
+# editor / OS junk
+.DS_Store
+*.swp
+*~
+
+# anything we deliberately keep out of public history
+/origin/
