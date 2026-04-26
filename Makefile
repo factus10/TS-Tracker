@@ -116,11 +116,10 @@ $(BUILDDIR)/songs.stamp: $(MAKEFILE_LIST) tools/build_song_bundle.py | $(BUILDDI
 $(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_high.bin: $(BUILDDIR)/songs.stamp ;
 
 $(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) \
-                                  $(BUILDDIR)/song_bundle.c \
                                   $(BUILDDIR)/ptxplay_addrs.h \
                                   $(SRCDIR)/ay_ts2068.h | $(BUILDDIR)
 	$(ZCC) $(CFLAGS) \
-	    $(SRCDIR)/pt3_player.c $(AY_SRCS) $(BUILDDIR)/song_bundle.c \
+	    $(SRCDIR)/pt3_player.c $(AY_SRCS) \
 	    -o $(BUILDDIR)/pt3-player-base \
 	    -create-app
 	mv $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/pt3-player-base.tap.tmp || true
@@ -142,31 +141,16 @@ $(BUILDDIR)/pt3-player-stage1.tap: $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/p
 	    49152 ptxplay \
 	    $(BUILDDIR)/pt3-player-stage1.tap
 
-$(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/songs_high.bin tools/append_code_block.py
+$(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap
 	@# Sanity-check: the C binary's CODE block must end below $C000 (where
 	@# PTxPlay loads), otherwise CODE 2 silently overwrites parts of CODE 1.
 	@end=$$(python3 -c "import os; print(0x8000 + os.path.getsize('$(BUILDDIR)/pt3-player-base_CODE.bin'))"); \
 	if [ $$end -gt 49152 ]; then \
 	    printf "ERROR: C binary ends at \$$%X, which overlaps PTxPlay at \$$C000.\n" $$end >&2; \
-	    printf "       Lower LOW_SONG_CAP or shrink the program.\n" >&2; \
+	    printf "       Shrink the program.\n" >&2; \
 	    exit 1; \
 	fi
-	@# Same for songs_high: must not run past $$FF00 (leave room for stack).
-	@if [ -s $(BUILDDIR)/songs_high.bin ]; then \
-	    end=$$(python3 -c "import os; print(0x$(HIGH_SONG_BASE) + os.path.getsize('$(BUILDDIR)/songs_high.bin'))"); \
-	    if [ $$end -gt 65280 ]; then \
-	        printf "ERROR: high song bundle ends at \$$%X, past safe \$$FF00.\n" $$end >&2; \
-	        exit 1; \
-	    fi; \
-	    python3 tools/append_code_block.py \
-	        $(BUILDDIR)/pt3-player-stage1.tap \
-	        $(BUILDDIR)/songs_high.bin \
-	        $$((16#$(HIGH_SONG_BASE))) songs \
-	        $(BUILDDIR)/pt3-player.tap; \
-	else \
-	    cp $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/pt3-player.tap; \
-	    echo "  (high song bundle empty -- no third CODE block)"; \
-	fi
+	cp $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/pt3-player.tap
 
 # ---- songs-tape (a separate .tap of song CODE blocks) -----------------------
 # Lets the player's `L` key load arbitrary songs from tape at runtime: load

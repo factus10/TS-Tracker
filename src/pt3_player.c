@@ -164,15 +164,21 @@ static void tape_extract_title(void)
     tape_title[last] = 0;
 }
 
-/* Provided by build/song_bundle.c (auto-generated): */
-struct song_entry {
-    const unsigned char *data;
-    const char          *title;
-    const char          *author;
-    unsigned char        fmt;     /* 0 = PT3, 1 = PT2 */
+/* ---- In-memory tape directory ---------------------------------------------
+   Built by scan_tape() on user request, lives until rescan or quit. We keep
+   only what's needed to *list* the song; the actual data isn't preserved
+   across the whole tape -- only the most recently loaded song occupies
+   TAPE_SONG_BASE at any one time. */
+#define DIR_MAX  9   /* keys 1..9 select; one screen of entries fits cleanly */
+
+struct dir_entry {
+    char           name[11];   /* 10-char tape filename, null-terminated */
+    unsigned int   length;     /* data block size in bytes */
+    unsigned char  fmt;        /* 0 = PT3, 1 = PT2 */
 };
-extern const struct song_entry song_table[];
-extern const unsigned char     song_count;
+
+static struct dir_entry directory[DIR_MAX];
+static unsigned char    dir_count;
 
 /* ---- PTxPlay thunks (call into the memcpy'd blob at fixed addresses) -------- */
 
@@ -251,6 +257,12 @@ static void at(unsigned char row, unsigned char col)
 static void cls(void)
 {
     unsigned int i;
+    /* Reset PRINT colour state so spaces pick up the default attribute and
+       the banner from the previous screen doesn't bleed through. */
+    putch(0x10); putch(0);   /* INK 0 (black) */
+    putch(0x11); putch(7);   /* PAPER 7 (white) */
+    putch(0x13); putch(0);   /* BRIGHT 0 */
+    putch(0x14); putch(0);   /* INVERSE 0 */
     at(0, 0);
     for (i = 0; i < 22u * 32u - 1u; i++) putch(' ');
     at(0, 0);
@@ -277,6 +289,16 @@ static unsigned char key_space(void) { return read_row(0x7F) & 0x01; }
 static unsigned char key_enter(void) { return read_row(0xBF) & 0x01; }
 /* Row $BF = ENTER L K J H ; bit 1 = L. */
 static unsigned char key_L(void)     { return read_row(0xBF) & 0x02; }
+/* Row $FD = A S D F G ; bit 0 = A, bit 1 = S. */
+static unsigned char key_A(void)     { return read_row(0xFD) & 0x01; }
+static unsigned char key_S(void)     { return read_row(0xFD) & 0x02; }
+/* Row $FB = Q W E R T ; bit 0 = Q, bit 3 = R. */
+static unsigned char key_Q(void)     { return read_row(0xFB) & 0x01; }
+static unsigned char key_R(void)     { return read_row(0xFB) & 0x08; }
+/* TS2068 BREAK = CAPS-SHIFT (row $FE bit 0) + SPACE (row $7F bit 0). */
+static unsigned char key_break(void) {
+    return (read_row(0xFE) & 0x01) && (read_row(0x7F) & 0x01);
+}
 
 /* Sinclair keyboard matrix:
      row $F7: 1, 2, 3, 4, 5  (bits 0..4)
@@ -307,56 +329,122 @@ static void put_dec(unsigned char n)
     putch('0' + n);
 }
 
-static void draw_menu(void)
+/* Set the next-print colour state. ROM PRINT honours INK ($10), PAPER ($11),
+   BRIGHT ($13), and INVERSE ($14) control codes inline in the byte stream. */
+static void set_attr(unsigned char ink, unsigned char paper, unsigned char bright)
 {
-    unsigned char i;
-    cls();
-    at(0, 4);  puts_str("TS Tracker -- PT2/PT3 player");
-    at(2, 0);  puts_str("Songs:");
-
-    /* Each menu row: "[N] (PT3) <title>" -- 10 chars of prefix at col 2,
-       leaving 32-2-10 = 20 chars for the title before column 31. */
-    for (i = 0; i < song_count; i++) {
-        at(4 + i, 2);
-        putch('[');
-        put_dec(i + 1);
-        putch(']');
-        putch(' ');
-        puts_str(song_table[i].fmt ? "(PT2) " : "(PT3) ");
-        puts_str_n(song_table[i].title, 20);
-    }
-
-    at(21, 0); puts_str("1-9 play  L tape  ENTER quit");
+    putch(0x10); putch(ink);
+    putch(0x11); putch(paper);
+    putch(0x13); putch(bright);
 }
 
-static void draw_now_playing(unsigned char idx)
+static void set_inverse(unsigned char on)
+{
+    putch(0x14); putch(on);
+}
+
+/* Draw the nofile.tap-style banner at row 0:
+     " TIMEX " in cyan-on-black, a bright white band centred on the project
+     name, " 2068 " in cyan-on-black on the right. Always reset to default
+     ink/paper after so subsequent rows don't inherit the band's BRIGHT. */
+static void draw_banner(void)
+{
+    at(0, 0);
+    set_attr(5, 0, 0);                /* cyan ink, black paper, no bright */
+    puts_str(" TIMEX ");
+    set_attr(0, 7, 1);                /* black ink, white paper, BRIGHT */
+    puts_str("  PT2/PT3 Player   ");  /* 19 chars */
+    set_attr(5, 0, 0);
+    puts_str(" 2068 ");
+    set_attr(0, 7, 0);                /* reset to default */
+}
+
+/* White-on-red status banner across all 32 cols of a single row, mirroring
+   the "-- No file mounted! --" line in nofile.tap. The text is centred. */
+static void draw_status(unsigned char row, const char *text)
+{
+    unsigned char len = 0;
+    unsigned char pad, i;
+    while (text[len]) len++;
+    pad = (32 - len) / 2;
+
+    at(row, 0);
+    set_attr(7, 2, 0);                /* white ink, red paper */
+    for (i = 0; i < pad; i++) putch(' ');
+    puts_str(text);
+    for (i = pad + len; i < 32; i++) putch(' ');
+    set_attr(0, 7, 0);
+}
+
+/* Render a menu line: indent, INVERSE hotkey, then label, with no auto-space
+   between -- the caller spells the label such that the hotkey reads as the
+   first letter of a word ("S" + "can tape" -> "Scan tape") or includes any
+   wanted separator itself (" play all" -> "A play all"). */
+static void draw_menu_item(unsigned char row, char hotkey, const char *label)
+{
+    at(row, 4);
+    set_inverse(1);
+    putch(hotkey);
+    set_inverse(0);
+    puts_str(label);
+}
+
+static void show_scan_prompt(void)
 {
     cls();
-    at(0, 4);  puts_str("Now playing:");
-    at(2, 2);
-    puts_str(song_table[idx].fmt ? "(PT2) " : "(PT3) ");
-    /* row 2 col 8 -- 24 chars left before col 31, wrap to row 3 col 2
-       for the remainder. Walk the string char-by-char so we stop cleanly
-       at the null terminator instead of reading past short titles. */
+    draw_banner();
+    draw_status(2, "-- No tape loaded --");
+
+    at(5, 0);  puts_str("Insert a tape (or .tap in");
+    at(6, 0);  puts_str("an emulator), then:");
+
+    draw_menu_item(9,  'S', "can tape");
+    draw_menu_item(10, 'Q', "uit");
+
+    at(13, 0); puts_str("After the last song plays,");
+    at(14, 0); puts_str("press CAPS+SPACE to stop");
+    at(15, 0); puts_str("scanning.");
+}
+
+static void show_directory(void)
+{
+    unsigned char i;
+    char buf[16];
+    cls();
+    draw_banner();
+
+    /* Status line includes the song count: "-- N songs found --" */
     {
-        const char *t = song_table[idx].title;
-        unsigned char i = 0;
-        while (i < 24 && t[i]) { putch((unsigned char)t[i]); i++; }
-        if (t[i]) {
-            at(3, 2);
-            while (i < 24 + 30 && t[i]) { putch((unsigned char)t[i]); i++; }
-        }
+        unsigned char j = 0;
+        const char *prefix = "-- ";
+        const char *suffix;
+        suffix = (dir_count == 1) ? " song found --" : " songs found --";
+        while (*prefix)  buf[j++] = *prefix++;
+        if (dir_count >= 10) buf[j++] = '0' + dir_count / 10;
+        buf[j++] = '0' + dir_count % 10;
+        while (*suffix)  buf[j++] = *suffix++;
+        buf[j] = 0;
     }
-    if (song_table[idx].author[0]) {
-        at(5, 2); puts_str("by ");
-        puts_str_n(song_table[idx].author, 25);
+    draw_status(2, buf);
+
+    for (i = 0; i < dir_count; i++) {
+        struct dir_entry *e = &directory[i];
+        at(4 + i, 4);
+        set_inverse(1);
+        putch('1' + i);
+        set_inverse(0);
+        putch(' ');
+        puts_str(e->fmt ? "(PT2) " : "(PT3) ");
+        puts_str(e->name);
     }
-    /* Static labels for the live readout. The bars themselves get drawn each
-       frame by draw_live_bars(). */
-    at(8,  2); puts_str("A: ");
-    at(9,  2); puts_str("B: ");
-    at(10, 2); puts_str("C: ");
-    at(21, 0); puts_str("1-3 mute   SPACE stop");
+
+    /* Action menu lives below the directory; row 15 onward leaves room for
+       up to nine entries (rows 4-12). */
+    draw_menu_item(15, 'A', " play all");
+    draw_menu_item(16, 'R', "escan");
+    draw_menu_item(17, 'Q', "uit");
+
+    at(21, 0); puts_str("rewind tape before playing");
 }
 
 /* Spectrum attribute layout: bit 7 FLASH, bit 6 BRIGHT, bits 5-3 PAPER,
@@ -487,105 +575,29 @@ static void draw_live_bars(void)
 
 /* ---- play loop -------------------------------------------------------------- */
 
-static void play_song(unsigned char start_idx)
-{
-    unsigned char idx = start_idx;
-    unsigned char divider = 0;
-    unsigned char prev_mute_keys = 0;
-    unsigned char restart;
+/* Play whatever's currently loaded at TAPE_SONG_BASE, with the given title
+   and format. Returns 0 if user hit SPACE, 1 if PTxPlay's loop-end flag
+   tripped (song looped), 2 if user hit BREAK (CAPS+SPACE). */
+#define PLAY_STOP    0
+#define PLAY_LOOPED  1
+#define PLAY_BREAK   2
 
-    set_border(1);                /* solid blue border for the whole session */
-
-    do {
-        const struct song_entry *e = &song_table[idx];
-        restart = 0;
-
-        /* PTxPlay takes the raw module start for both PT2 and PT3. The PT3
-           path internally ADDS 100 to find the speed byte; the PT2 path
-           reads directly from the start. The format selector lives in
-           bit 1 of SETUP. We also clear bit 7 (loop-passed) here so the
-           auto-advance check below only fires on the *new* song's loop. */
-        PTx_setup = e->fmt ? 0x02 : 0x00;
-        PTx_init((unsigned int)e->data);
-
-        draw_now_playing(idx);
-        /* cls() in draw_now_playing wiped the bars; force a full redraw
-           on the first frame by invalidating the cache. */
-        prev_bar[0] = prev_bar[1] = prev_bar[2] = BAR_FORCE;
-
-        for (;;) {
-            intrinsic_halt();
-            if (++divider == 6) {
-                divider = 0;
-            } else {
-                PTx_play();
-                /* Override muted channels' AY amp registers AFTER PTxPlay
-                   wrote its output. AYREGS in PTxPlay still reflects the
-                   "would-be" volume so the bar logic can show MUTE
-                   regardless of actual playback. */
-                if (mute_mask & 0x01) silence_channel(0);
-                if (mute_mask & 0x02) silence_channel(1);
-                if (mute_mask & 0x04) silence_channel(2);
-                draw_live_bars();
-            }
-
-            /* Mute toggle on rising edge of keys 1/2/3 (row $F7 bits 0/1/2).
-               Debounced by tracking the previous frame's bit pattern. */
-            {
-                unsigned char keys = read_row(0xF7) & 0x07;
-                unsigned char pressed = keys & ~prev_mute_keys;
-                prev_mute_keys = keys;
-                if (pressed) mute_mask ^= pressed;
-            }
-
-            /* Auto-advance: PTxPlay sets bit 7 of SETUP whenever the song
-               loops back to its start (LoopChecker=1 in our build). On
-               first wrap, advance to the next song. Wraps to 0 at end. */
-            if (PTx_setup & 0x80) {
-                idx++;
-                if (idx >= song_count) idx = 0;
-                restart = 1;
-                break;
-            }
-
-            if (key_space()) break;
-        }
-    } while (restart);
-
-    set_border(7);
-
-    PTx_mute();
-    while (key_space()) intrinsic_halt();
-}
-
-/* ---- tape song flow --------------------------------------------------------
-   The tape-loaded song shares memory with the bundled high group, so loading
-   from tape DESTROYS bundled songs 4-6 in this session. After a tape song
-   plays out and the user hits SPACE, we drop the user back to the menu;
-   pressing 4-6 from then on plays garbage until the program is reloaded. */
-
-static struct song_entry tape_entry;
-
-static void play_tape_song(void)
+static unsigned char play_buffer(const char *title, unsigned char fmt)
 {
     unsigned char divider = 0;
     unsigned char prev_mute_keys = 0;
-
-    tape_entry.data   = (const unsigned char *)TAPE_SONG_BASE;
-    tape_entry.title  = tape_title;
-    tape_entry.author = "from tape";
-    tape_entry.fmt    = tape_song_fmt;
+    unsigned char ret = PLAY_STOP;
 
     set_border(1);
-
-    PTx_setup = tape_entry.fmt ? 0x02 : 0x00;
-    PTx_init((unsigned int)tape_entry.data);
+    PTx_setup = fmt ? 0x02 : 0x00;
+    PTx_init((unsigned int)TAPE_SONG_BASE);
 
     cls();
-    at(0, 4);  puts_str("Now playing (tape):");
-    at(2, 2);
-    puts_str(tape_entry.fmt ? "(PT2) " : "(PT3) ");
-    puts_str_n(tape_entry.title, 24);
+    draw_banner();
+    draw_status(2, "-- Now playing --");
+    at(4, 2);
+    puts_str(fmt ? "(PT2) " : "(PT3) ");
+    puts_str_n(title, 24);
     at(8,  2); puts_str("A: ");
     at(9,  2); puts_str("B: ");
     at(10, 2); puts_str("C: ");
@@ -611,34 +623,160 @@ static void play_tape_song(void)
             if (pressed) mute_mask ^= pressed;
         }
 
-        if (key_space()) break;
+        if (PTx_setup & 0x80) { ret = PLAY_LOOPED; break; }
+        if (key_break())      { ret = PLAY_BREAK;  break; }
+        if (key_space())      { ret = PLAY_STOP;   break; }
     }
 
     PTx_mute();
     set_border(7);
     while (key_space()) intrinsic_halt();
+    return ret;
 }
 
-static void try_load_tape_song(void)
+/* Walk one tape header + data block into TAPE_SONG_BASE. Returns 1 on
+   success, 0 on tape error / BREAK / end of tape. */
+static unsigned char tape_load_one_song(void)
+{
+    unsigned int length;
+
+    tape_arg_flag = 0x00;
+    tape_arg_dest = (unsigned int)tape_header;
+    tape_arg_len  = 17;
+    if (!tape_read_block()) return 0;
+
+    length = tape_header[11] | ((unsigned int)tape_header[12] << 8);
+    if (length == 0 || length > 0x4000) return 0;
+
+    tape_arg_flag = 0xFF;
+    tape_arg_dest = TAPE_SONG_BASE;
+    tape_arg_len  = length;
+    if (!tape_read_block()) return 0;
+    return 1;
+}
+
+/* Build the in-memory directory by reading every header (and skipping the
+   following data block) until we hit DIR_MAX, end of tape, or BREAK.
+   Each found CODE block is shown live as it's discovered. */
+static void scan_tape(void)
 {
     cls();
-    at(8,  4);  puts_str("PLAY TAPE TO LOAD A SONG");
-    at(10, 4);  puts_str("(needs a CODE block)");
-    at(12, 4);  puts_str("BREAK during load to abort");
+    draw_banner();
+    draw_status(2, "-- Scanning tape --");
+    at(21, 0); puts_str("CAPS+SPACE when tape ends");
 
-    tape_extract_title();   /* will be filled by tape_read_block; placeholder */
+    dir_count = 0;
+    while (dir_count < DIR_MAX) {
+        if (!tape_load_one_song()) break;
+        if (tape_header[0] != 3) continue;
 
-    if (load_song_from_tape()) {
-        tape_extract_title();
-        play_tape_song();
-    } else {
-        cls();
-        at(10, 4); puts_str("TAPE LOAD FAILED");
-        at(12, 4); puts_str("(any key to continue)");
-        while (!key_digit() && !key_enter() && !key_L() && !key_space())
-            intrinsic_halt();
-        while (key_digit() || key_enter() || key_L() || key_space())
-            intrinsic_halt();
+        /* Trim the 10-byte tape filename into a null-terminated string. */
+        char trimmed[11];
+        unsigned char i, last = 0;
+        for (i = 0; i < 10; i++) {
+            unsigned char c = tape_header[1 + i];
+            trimmed[i] = (c >= 32 && c < 127) ? c : '?';
+            if (trimmed[i] != ' ') last = i + 1;
+        }
+        trimmed[last] = 0;
+
+        /* Detect tape-loop: if this filename is already in the directory,
+           we've wrapped around (common in emulators that loop the .tap).
+           Stop scanning so we don't list the same songs N times. */
+        {
+            unsigned char j, dup = 0;
+            for (j = 0; j < dir_count && !dup; j++) {
+                unsigned char k;
+                for (k = 0; ; k++) {
+                    if (directory[j].name[k] != trimmed[k]) break;
+                    if (trimmed[k] == 0) { dup = 1; break; }
+                }
+            }
+            if (dup) break;
+        }
+
+        {
+            struct dir_entry *e = &directory[dir_count];
+            for (i = 0; i <= last; i++) e->name[i] = trimmed[i];
+            e->length = tape_header[11] | ((unsigned int)tape_header[12] << 8);
+            {
+                const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
+                e->fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+            }
+
+            at(4 + dir_count, 2);
+            putch('['); put_dec(dir_count + 1); putch(']'); putch(' ');
+            puts_str(e->fmt ? "(PT2) " : "(PT3) ");
+            puts_str(e->name);
+
+            dir_count++;
+        }
+    }
+}
+
+/* Read tape forward, counting CODE blocks; play the (target+1)-th one. */
+static unsigned char play_index(unsigned char target)
+{
+    unsigned char code_n = 0;
+
+    cls();
+    draw_banner();
+    draw_status(2, "-- Loading --");
+    at(5, 4);  puts_str("Loading song ");
+    put_dec(target + 1);
+    puts_str("...");
+    at(7, 4);  puts_str("(rewind tape if needed)");
+    at(21, 0); puts_str("CAPS+SPACE abort");
+
+    while (1) {
+        if (!tape_load_one_song()) {
+            cls();
+            at(10, 4); puts_str("LOAD ABORTED");
+            at(12, 4); puts_str("Press any key");
+            while (!key_digit() && !key_space() && !key_enter() &&
+                   !key_R()    && !key_A())
+                intrinsic_halt();
+            while (key_digit() || key_space() || key_enter() ||
+                   key_R()    || key_A())
+                intrinsic_halt();
+            return 0;
+        }
+
+        if (tape_header[0] == 3) {
+            if (code_n == target) {
+                tape_extract_title();
+                {
+                    const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
+                    unsigned char fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+                    play_buffer(directory[target].name, fmt);
+                }
+                return 1;
+            }
+            code_n++;
+        }
+    }
+}
+
+/* Read every CODE block off the tape and play them in turn. SPACE skips to
+   the next song; CAPS+SPACE quits back to the directory. */
+static void play_all(void)
+{
+    cls();
+    draw_banner();
+    draw_status(2, "-- Play all --");
+    at(5, 4);  puts_str("Reading every song.");
+    at(7, 4);  puts_str("(rewind tape first)");
+    at(21, 0); puts_str("SPACE next   CAPS+SPC quit");
+
+    while (1) {
+        if (!tape_load_one_song()) return;
+
+        if (tape_header[0] == 3) {
+            const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
+            unsigned char fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+            tape_extract_title();
+            if (play_buffer(tape_title, fmt) == PLAY_BREAK) return;
+        }
     }
 }
 
@@ -649,23 +787,51 @@ void main(void)
     unsigned char d;
 
     intrinsic_ei();
-
     AY_Init();
-    PTx_mute();   /* sane initial state */
+    PTx_mute();
+    set_border(7);
 
     for (;;) {
-        draw_menu();
-
-        while (key_digit() || key_enter() || key_L()) intrinsic_halt();
-
-        for (;;) {
-            intrinsic_halt();
-
-            if (key_enter()) goto quit;
-            if (key_L())     { try_load_tape_song(); break; }
-
-            d = key_digit();
-            if (d >= 1 && d <= song_count) { play_song(d - 1); break; }
+        if (dir_count == 0) {
+            show_scan_prompt();
+            while (key_space() || key_S() || key_enter() || key_Q())
+                intrinsic_halt();
+            for (;;) {
+                intrinsic_halt();
+                if (key_enter() || key_Q()) goto quit;
+                if (key_space() || key_S()) {
+                    while (key_space() || key_S()) intrinsic_halt();
+                    scan_tape();
+                    break;
+                }
+            }
+        } else {
+            show_directory();
+            while (key_digit() || key_enter() || key_A() ||
+                   key_R()    || key_Q())
+                intrinsic_halt();
+            for (;;) {
+                intrinsic_halt();
+                if (key_enter() || key_Q()) goto quit;
+                if (key_R()) {
+                    while (key_R()) intrinsic_halt();
+                    /* Rescan immediately rather than dropping back to the
+                       scan-prompt screen and waiting for SPACE again. */
+                    scan_tape();
+                    break;
+                }
+                if (key_A()) {
+                    while (key_A()) intrinsic_halt();
+                    play_all();
+                    break;
+                }
+                d = key_digit();
+                if (d >= 1 && d <= dir_count) {
+                    while (key_digit()) intrinsic_halt();
+                    play_index(d - 1);
+                    break;
+                }
+            }
         }
     }
 
@@ -674,5 +840,6 @@ quit:
     AY_Init();
     PlayAY();
     cls();
+    set_border(7);
     intrinsic_di();
 }
