@@ -33,6 +33,22 @@ __asm
 __endasm;
 }
 
+/* Force AY amplitude register 8/9/10 to zero for a given channel (0..2),
+   silencing it without touching PTxPlay's AYREGS shadow. Called every
+   frame after PTx_play for muted channels. */
+static void silence_channel(unsigned char ch) __naked __z88dk_fastcall
+{
+    (void)ch;
+__asm
+    ld   a,l
+    add  a,#8
+    out  (#0xF5),a
+    xor  a
+    out  (#0xF6),a
+    ret
+__endasm;
+}
+
 /* Provided by build/song_bundle.c (auto-generated): */
 struct song_entry {
     const unsigned char *data;
@@ -49,13 +65,18 @@ extern const unsigned char     song_count;
    pointer). If we just JP into them, the RET returns to our caller with IX
    garbaged -- subsequent local-variable access reads random memory. Save
    and restore IX around each call. PTxPlay does not touch IY, which is
-   reserved on the Spectrum for the system-variable pointer. */
+   reserved on the Spectrum for the system-variable pointer.
+
+   Addresses come from build/ptxplay_addrs.h (auto-generated from sjasmplus's
+   .sym output); the C preprocessor substitutes them into the asm before SDCC
+   sees the block. Hardcoding numeric literals here breaks silently the
+   moment PTxPlay's layout shifts (e.g., enabling LoopChecker). */
 static void PTx_init(unsigned int song_addr) __naked __z88dk_fastcall
 {
     (void)song_addr;
 __asm
     push ix
-    call 0xC017          ; INIT_ADDR; HL holds song address by fastcall
+    call INIT_ADDR        ; HL holds song address by fastcall
     pop  ix
     ret
 __endasm;
@@ -65,7 +86,7 @@ static void PTx_play(void) __naked
 {
 __asm
     push ix
-    call 0xC623          ; PLAY_ADDR
+    call PLAY_ADDR
     pop  ix
     ret
 __endasm;
@@ -75,7 +96,7 @@ static void PTx_mute(void) __naked
 {
 __asm
     push ix
-    call 0xC00B          ; MUTE_ADDR
+    call MUTE_ADDR
     pop  ix
     ret
 __endasm;
@@ -218,7 +239,7 @@ static void draw_now_playing(unsigned char idx)
     at(8,  2); puts_str("A: ");
     at(9,  2); puts_str("B: ");
     at(10, 2); puts_str("C: ");
-    at(21, 0); puts_str("SPACE: stop");
+    at(21, 0); puts_str("1-3 mute   SPACE stop");
 }
 
 /* Spectrum attribute layout: bit 7 FLASH, bit 6 BRIGHT, bits 5-3 PAPER,
@@ -242,94 +263,179 @@ static const unsigned char bar_color[16] = {
     ATTR(0, 2, 1), ATTR(0, 2, 1),
 };
 
-/* Read PTxPlay's AYREGS buffer (post-Player_Decode, post-PlayAY) and draw a
-   coloured volume bar for each channel. AY amplitude is bits 0..3 of regs
-   8/9/10; bit 4 means "use envelope" -- we render that as 'ENV' in cyan. */
+/* Channel-mute state. Bit 0 = mute A, bit 1 = mute B, bit 2 = mute C.
+   Persists across songs so the user doesn't have to re-mute each track. */
+static unsigned char mute_mask;
+
+/* Per-channel state cache for the bars. We only redraw a channel when its
+   state actually changes -- by far the common case is "no change" since PT3
+   note durations span many frames. Even when state changes by one volume
+   step, we only repaint the single cell that flipped on or off.
+
+   Encoding: 0..15 = normal volume, 0x80|ENV = envelope mode, 0x40|MUTE.
+   Sentinel 0xFF means "force a full redraw on the next visit" (e.g. when
+   draw_now_playing has just cleared the screen). */
+#define BAR_NORMAL(level)  (level)
+#define BAR_ENV            0x80
+#define BAR_MUTE           0x40
+#define BAR_FORCE          0xFF
+
+static unsigned char prev_bar[3];
+
+static void bar_full_normal(unsigned char row, unsigned char level)
+{
+    unsigned char i;
+    at(row, 5);
+    for (i = 0; i < 16; i++) {
+        putch(i < level ? 0x8F : ' ');
+        write_attr(row, 5 + i, i < level ? bar_color[i] : ATTR(0, 0, 0));
+    }
+}
+
+static void bar_full_env(unsigned char row)
+{
+    unsigned char i;
+    at(row, 5);
+    putch('E'); putch('N'); putch('V');
+    for (i = 3; i < 16; i++) putch(' ');
+    for (i = 0; i < 16; i++) write_attr(row, 5 + i, ATTR(0, 5, 1));
+}
+
+static void bar_full_mute(unsigned char row)
+{
+    unsigned char i;
+    at(row, 5);
+    putch('M'); putch('U'); putch('T'); putch('E');
+    for (i = 4; i < 16; i++) putch(' ');
+    for (i = 0; i < 16; i++) write_attr(row, 5 + i, ATTR(0, 1, 0));
+}
+
+/* Diff-redraw: only touch the cells that flipped on or off between two
+   plain-volume states. About 50x faster than a full redraw at steady
+   state, and avoids the flicker from rewriting unchanged cells. */
+static void bar_diff_normal(unsigned char row, unsigned char old_lvl, unsigned char new_lvl)
+{
+    unsigned char i;
+    if (new_lvl > old_lvl) {
+        at(row, 5 + old_lvl);
+        for (i = old_lvl; i < new_lvl; i++) {
+            putch(0x8F);
+            write_attr(row, 5 + i, bar_color[i]);
+        }
+    } else {
+        at(row, 5 + new_lvl);
+        for (i = new_lvl; i < old_lvl; i++) {
+            putch(' ');
+            write_attr(row, 5 + i, ATTR(0, 0, 0));
+        }
+    }
+}
+
 static void draw_live_bars(void)
 {
     const unsigned char *regs = (const unsigned char *)AYREGS_ADDR;
     unsigned char ch;
     for (ch = 0; ch < 3; ch++) {
-        unsigned char amp   = regs[8 + ch];
-        unsigned char level = amp & 0x0F;
-        unsigned char env   = amp & 0x10;
         unsigned char row   = 8 + ch;
-        unsigned char i;
+        unsigned char muted = (mute_mask >> ch) & 1;
+        unsigned char amp   = regs[8 + ch];
 
-        at(row, 5);
-        if (env) {
-            putch('E'); putch('N'); putch('V');
-            for (i = 3; i < 16; i++) putch(' ');
-            for (i = 0; i < 16; i++) write_attr(row, 5 + i, ATTR(0, 5, 1));
-        } else {
-            for (i = 0; i < 16; i++) {
-                putch(i < level ? 0x8F : ' ');
-                write_attr(row, 5 + i,
-                           i < level ? bar_color[i] : ATTR(0, 0, 0));
+        unsigned char now;
+        if (muted)            now = BAR_MUTE;
+        else if (amp & 0x10)  now = BAR_ENV;
+        else                  now = amp & 0x0F;
+
+        unsigned char prev = prev_bar[ch];
+        if (now == prev) continue;
+
+        /* Anything except a normal-to-normal level change forces a full
+           repaint; the cells changing layout (text vs blocks, attributes)
+           don't lend themselves to a tidy diff. */
+        if (prev > 0x0F || now > 0x0F) {
+            switch (now) {
+                case BAR_MUTE: bar_full_mute(row); break;
+                case BAR_ENV:  bar_full_env(row);  break;
+                default:       bar_full_normal(row, now); break;
             }
+        } else {
+            bar_diff_normal(row, prev, now);
         }
+        prev_bar[ch] = now;
     }
 }
 
-/* Slow diagonal colour wash on rows 12-20.
-   Photosensitivity safety: wave_phase advances ONLY once every 30 frames
-   (= ~2 Hz on the TS2068's 60 Hz frame timer). Even the fastest perceived
-   motion -- a single cell changing hue -- happens at 2 Hz, well below
-   the 3 Hz flash threshold. We also drop BRIGHT and skip black/white,
-   so neighbouring cells never flip across high contrast.
-
-   Palette: blue / magenta / cyan / green / yellow / red, in that visual
-   order. No black or bright-white bands -> no harsh transitions. */
-static unsigned char wave_phase;
-static unsigned char wave_tick;
-
-static const unsigned char wave_palette[6] = { 1, 3, 5, 4, 6, 2 };
-
-static void draw_color_wave(void)
-{
-    unsigned int addr = 0x5800 + 12 * 32;
-    unsigned char r, c;
-    for (r = 0; r < 9; r++) {
-        for (c = 0; c < 32; c++) {
-            unsigned char idx = (r + (c >> 1) + wave_phase) % 6;
-            *(unsigned char *)addr = ATTR(wave_palette[idx], 0, 0);
-            addr++;
-        }
-    }
-    if (++wave_tick >= 30) { wave_tick = 0; wave_phase++; }
-}
+/* (Background colour wave removed -- too expensive per frame and a separate
+   visualisation pass deserves its own design. We'll come back to it once
+   we have a faster screen-write path than ROM PRINT.) */
 
 /* ---- play loop -------------------------------------------------------------- */
 
-static void play_song(unsigned char idx)
+static void play_song(unsigned char start_idx)
 {
+    unsigned char idx = start_idx;
     unsigned char divider = 0;
-    const struct song_entry *e = &song_table[idx];
+    unsigned char prev_mute_keys = 0;
+    unsigned char restart;
 
-    /* PTxPlay takes the raw module start for both PT2 and PT3. The PT3
-       path internally ADDS 100 to find the speed byte (file offset 100);
-       the PT2 path reads directly from the start. (Note: mvac7's PT3
-       player used the opposite convention -- it subtracted 100.) */
-    PTx_setup = e->fmt ? 0x02 : 0x00;     /* bit 1: 1 = PT2, 0 = PT3 */
-    PTx_init((unsigned int)e->data);
+    set_border(1);                /* solid blue border for the whole session */
 
-    draw_now_playing(idx);
+    do {
+        const struct song_entry *e = &song_table[idx];
+        restart = 0;
 
-    wave_phase = 0; wave_tick = 0;
-    set_border(1);                /* solid blue border, fixed for the whole song */
-    for (;;) {
-        intrinsic_halt();
-        if (++divider == 6) {
-            divider = 0;
-        } else {
-            PTx_play();
-            draw_live_bars();
+        /* PTxPlay takes the raw module start for both PT2 and PT3. The PT3
+           path internally ADDS 100 to find the speed byte; the PT2 path
+           reads directly from the start. The format selector lives in
+           bit 1 of SETUP. We also clear bit 7 (loop-passed) here so the
+           auto-advance check below only fires on the *new* song's loop. */
+        PTx_setup = e->fmt ? 0x02 : 0x00;
+        PTx_init((unsigned int)e->data);
+
+        draw_now_playing(idx);
+        /* cls() in draw_now_playing wiped the bars; force a full redraw
+           on the first frame by invalidating the cache. */
+        prev_bar[0] = prev_bar[1] = prev_bar[2] = BAR_FORCE;
+
+        for (;;) {
+            intrinsic_halt();
+            if (++divider == 6) {
+                divider = 0;
+            } else {
+                PTx_play();
+                /* Override muted channels' AY amp registers AFTER PTxPlay
+                   wrote its output. AYREGS in PTxPlay still reflects the
+                   "would-be" volume so the bar logic can show MUTE
+                   regardless of actual playback. */
+                if (mute_mask & 0x01) silence_channel(0);
+                if (mute_mask & 0x02) silence_channel(1);
+                if (mute_mask & 0x04) silence_channel(2);
+                draw_live_bars();
+            }
+
+            /* Mute toggle on rising edge of keys 1/2/3 (row $F7 bits 0/1/2).
+               Debounced by tracking the previous frame's bit pattern. */
+            {
+                unsigned char keys = read_row(0xF7) & 0x07;
+                unsigned char pressed = keys & ~prev_mute_keys;
+                prev_mute_keys = keys;
+                if (pressed) mute_mask ^= pressed;
+            }
+
+            /* Auto-advance: PTxPlay sets bit 7 of SETUP whenever the song
+               loops back to its start (LoopChecker=1 in our build). On
+               first wrap, advance to the next song. Wraps to 0 at end. */
+            if (PTx_setup & 0x80) {
+                idx++;
+                if (idx >= song_count) idx = 0;
+                restart = 1;
+                break;
+            }
+
+            if (key_space()) break;
         }
-        draw_color_wave();
+    } while (restart);
 
-        if (key_space()) break;
-    }
-    set_border(7);                /* white -- BASIC's default background */
+    set_border(7);
 
     PTx_mute();
     while (key_space()) intrinsic_halt();

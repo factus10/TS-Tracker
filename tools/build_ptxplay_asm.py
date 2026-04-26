@@ -63,7 +63,8 @@ prelude = [
     'TS2068 EQU 1',
     'CurPosCounter EQU 0',
     'ACBBAC        EQU 0',
-    'LoopChecker   EQU 0',
+    'LoopChecker   EQU 1',  # PTxPlay sets bit 7 of SETUP each time the song
+                            # passes its loop point; we use that for auto-advance.
     'Id            EQU 0',
     'Release       EQU 1',
     '',
