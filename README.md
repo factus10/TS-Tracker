@@ -33,8 +33,15 @@ Tape compatibility:
 
 ## Quick start
 
-Requires `z88dk` and `sjasmplus` on `PATH`. The Makefile exports
-`Z88DK_HOME` and `ZCCCFG` itself, so a fresh shell works.
+If you just want to try it without setting up the toolchain, grab the
+prebuilt tapes from [`release/`](release/) — `pt3-player.tap` (the
+player) and `songs.tap` (six bundled chiptunes), or the bundled
+[`ts-tracker.zip`](release/ts-tracker.zip) with both plus a quick-start
+README.
+
+To build from source, you need `z88dk` and `sjasmplus` on `PATH`. The
+Makefile exports `Z88DK_HOME` and `ZCCCFG` itself, so a fresh shell
+works.
 
 ```sh
 make pt3-player        # build/pt3-player.tap  (the player)
