@@ -52,9 +52,9 @@ HIGH_SONG_BASE?= CB00         # hex; matches the LOAD address of the high block
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
 
-.PHONY: all smoketest pt3-mvp pt3-player songs-tape clean
+.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker clean
 
-all: smoketest pt3-player songs-tape
+all: smoketest pt3-player songs-tape tracker
 
 # ---- smoketest ---------------------------------------------------------------
 smoketest: $(BUILDDIR)/smoketest.tap
@@ -151,6 +151,31 @@ $(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap
 	    exit 1; \
 	fi
 	cp $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/pt3-player.tap
+
+# ---- tracker (separate app: edit PT3 songs from tape) -----------------------
+# Same PTxPlay binary + tape-load infrastructure as the player; different C
+# main + screens. Builds an independent build/tracker.tap.
+tracker: $(BUILDDIR)/tracker.tap
+
+$(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) \
+                              $(BUILDDIR)/ptxplay_addrs.h \
+                              $(SRCDIR)/ay_ts2068.h | $(BUILDDIR)
+	$(ZCC) $(CFLAGS) \
+	    $(SRCDIR)/tracker.c $(AY_SRCS) \
+	    -o $(BUILDDIR)/tracker-base \
+	    -create-app
+
+$(BUILDDIR)/tracker.tap: $(BUILDDIR)/tracker-base.tap $(BUILDDIR)/ptxplay.bin tools/append_code_block.py
+	@end=$$(python3 -c "import os; print(0x8000 + os.path.getsize('$(BUILDDIR)/tracker-base_CODE.bin'))"); \
+	if [ $$end -gt 49152 ]; then \
+	    printf "ERROR: tracker C binary ends at \$$%X, overlaps PTxPlay at \$$C000.\n" $$end >&2; \
+	    exit 1; \
+	fi
+	python3 tools/append_code_block.py \
+	    $(BUILDDIR)/tracker-base.tap \
+	    $(BUILDDIR)/ptxplay.bin \
+	    49152 ptxplay \
+	    $(BUILDDIR)/tracker.tap
 
 # ---- songs-tape (a separate .tap of song CODE blocks) -----------------------
 # Lets the player's `L` key load arbitrary songs from tape at runtime: load
