@@ -54,20 +54,9 @@ zesarux --machine ts2068 --tape build/pt3-player.tap
 
 ## Using the player
 
-```
-                     +---------------------------+
-                     |  TIMEX |  PT2/PT3 Player |  2068  |
-                     +---------------------------+
-                     |   -- Scanning tape --     |
-                     +---------------------------+
-                     | Found:                    |
-                     |   [1] (PT2) SONG_00       |
-                     |   [2] (PT2) SONG_01       |
-                     |   ...                     |
-                     +---------------------------+
-                     | CAPS+SPACE when tape ends |
-                     +---------------------------+
-```
+| Boot screen | Directory after a scan |
+| --- | --- |
+| ![No tape loaded -- press S to scan](docs/screenshots/scan-prompt.png) | ![Six songs found, with INVERSE-highlighted hotkeys](docs/screenshots/directory.png) |
 
 **On the empty / "no tape" screen:**
 
