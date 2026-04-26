@@ -52,9 +52,9 @@ HIGH_SONG_BASE?= CB00         # hex; matches the LOAD address of the high block
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
 
-.PHONY: all smoketest pt3-mvp pt3-player clean
+.PHONY: all smoketest pt3-mvp pt3-player songs-tape clean
 
-all: smoketest pt3-player
+all: smoketest pt3-player songs-tape
 
 # ---- smoketest ---------------------------------------------------------------
 smoketest: $(BUILDDIR)/smoketest.tap
@@ -167,6 +167,23 @@ $(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/songs_
 	    cp $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/pt3-player.tap; \
 	    echo "  (high song bundle empty -- no third CODE block)"; \
 	fi
+
+# ---- songs-tape (a separate .tap of song CODE blocks) -----------------------
+# Lets the player's `L` key load arbitrary songs from tape at runtime: load
+# pt3-player.tap first, then swap to songs.tap in the emulator and press L.
+# Each CODE block lands at $CB00 (matching TAPE_SONG_BASE in pt3_player.c).
+songs-tape: $(BUILDDIR)/songs.tap
+
+# Songs in songs/ have spaces in their names which break make's dep tracking;
+# stage them through no-space filenames first, same trick as songs.stamp.
+$(BUILDDIR)/songs.tap: $(MAKEFILE_LIST) tools/songs_to_tape.py | $(BUILDDIR)
+	@rm -rf $(BUILDDIR)/tape_staged && mkdir -p $(BUILDDIR)/tape_staged
+	@i=0; for f in $(SONGS_DIR)/*.pt2 $(SONGS_DIR)/*.pt3; do \
+	    [ -f "$$f" ] || continue; \
+	    cp "$$f" "$(BUILDDIR)/tape_staged/song_$$(printf '%02d' $$i).pt3"; \
+	    i=$$((i+1)); \
+	done
+	python3 tools/songs_to_tape.py $(BUILDDIR)/songs.tap $(BUILDDIR)/tape_staged/*.pt3
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):

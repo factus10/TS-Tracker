@@ -49,6 +49,121 @@ __asm
 __endasm;
 }
 
+/* ---- Tape loading ----------------------------------------------------------
+   The TS2068 keeps its tape routines in the EXROM, which we have to page in
+   manually before calling. The standard LD-BYTES entry is at $00FC (in the
+   EXROM bank); our trampoline saves DECR/HSR, switches chunk 0 to DOCK so
+   $00FC actually reaches EXROM, runs LD-BYTES, and restores the page state
+   on return. The flag/dest/length args go through fixed globals because
+   SDCC's z88dk_fastcall only carries one arg in HL.
+
+   This reads any block: pass flag=0x00 for a 17-byte header or flag=0xFF
+   for the data block that follows it on the tape. */
+static unsigned char tape_arg_flag;
+static unsigned int  tape_arg_dest;
+static unsigned int  tape_arg_len;
+static unsigned char saved_decr;
+static unsigned char saved_hsr;
+
+static unsigned char tape_read_block(void) __naked
+{
+__asm
+    push ix
+    di
+
+    ; preserve current page state
+    in   a,(#0xFF)
+    ld   (_saved_decr),a
+    set  7,a              ; ensure EXROM enable bit is set
+    out  (#0xFF),a
+
+    in   a,(#0xF4)
+    ld   (_saved_hsr),a
+    ld   a,#1             ; HSR = 01: chunk 0 from DOCK = EXROM at $0000-$1FFF
+    out  (#0xF4),a
+
+    ; load LD-BYTES inputs
+    ld   a,(_tape_arg_flag)
+    ld   ix,(_tape_arg_dest)
+    ld   de,(_tape_arg_len)
+    scf                    ; CY = 1 -> LOAD mode (vs VERIFY)
+    call #0x00FC           ; EXROM LD-BYTES
+
+    ; capture result (CY = 1 success, CY = 0 fail) without disturbing it
+    ld   a,#0
+    rla
+    push af
+
+    ; restore page state
+    ld   a,(_saved_hsr)
+    out  (#0xF4),a
+    ld   a,(_saved_decr)
+    out  (#0xFF),a
+    ei
+
+    pop  af
+    ld   l,a               ; SDCC return value goes in L
+    pop  ix
+    ret
+__endasm;
+}
+
+/* Tape-loaded song lives in the same memory region as the bundled high
+   group; loading from tape DESTROYS the bundled songs in slots 4-6 until
+   the user reloads the .tap. The C const arrays in low memory survive. */
+#define TAPE_SONG_BASE  0xCB00
+
+static unsigned char tape_header[17];
+static unsigned char tape_song_loaded;
+static unsigned char tape_song_fmt;
+
+static unsigned char load_song_from_tape(void)
+{
+    unsigned int length;
+
+    /* 1) Read a 17-byte header. */
+    tape_arg_flag = 0x00;
+    tape_arg_dest = (unsigned int)tape_header;
+    tape_arg_len  = 17;
+    if (!tape_read_block()) return 0;
+
+    /* Only CODE blocks (type 3) carry song data. */
+    if (tape_header[0] != 3) return 0;
+
+    length = tape_header[11] | ((unsigned int)tape_header[12] << 8);
+    if (length == 0 || length > 0x3000) return 0;   /* sanity cap ~12 KB */
+
+    /* 2) Read the data block that follows. */
+    tape_arg_flag = 0xFF;
+    tape_arg_dest = TAPE_SONG_BASE;
+    tape_arg_len  = length;
+    if (!tape_read_block()) return 0;
+
+    /* 3) Detect format. PT3 files start with "ProTracker 3"; anything else
+       we treat as PT2. (PT2 has no fixed magic.) */
+    {
+        const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
+        tape_song_fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+    }
+    tape_song_loaded = 1;
+    return 1;
+}
+
+/* Convert tape header bytes 1..10 into a null-terminated displayable
+   filename. Non-printable bytes become '?'; trailing spaces get trimmed. */
+static char tape_title[12];
+
+static void tape_extract_title(void)
+{
+    unsigned char i, last = 0;
+    for (i = 0; i < 10; i++) {
+        unsigned char c = tape_header[1 + i];
+        tape_title[i] = (c >= 32 && c < 127) ? c : '?';
+        if (tape_title[i] != ' ') last = i + 1;
+    }
+    tape_title[last] = 0;
+}
+
 /* Provided by build/song_bundle.c (auto-generated): */
 struct song_entry {
     const unsigned char *data;
@@ -160,6 +275,8 @@ __endasm;
 
 static unsigned char key_space(void) { return read_row(0x7F) & 0x01; }
 static unsigned char key_enter(void) { return read_row(0xBF) & 0x01; }
+/* Row $BF = ENTER L K J H ; bit 1 = L. */
+static unsigned char key_L(void)     { return read_row(0xBF) & 0x02; }
 
 /* Sinclair keyboard matrix:
      row $F7: 1, 2, 3, 4, 5  (bits 0..4)
@@ -209,7 +326,7 @@ static void draw_menu(void)
         puts_str_n(song_table[i].title, 20);
     }
 
-    at(21, 0); puts_str("1-9: play   ENTER: quit");
+    at(21, 0); puts_str("1-9 play  L tape  ENTER quit");
 }
 
 static void draw_now_playing(unsigned char idx)
@@ -441,6 +558,90 @@ static void play_song(unsigned char start_idx)
     while (key_space()) intrinsic_halt();
 }
 
+/* ---- tape song flow --------------------------------------------------------
+   The tape-loaded song shares memory with the bundled high group, so loading
+   from tape DESTROYS bundled songs 4-6 in this session. After a tape song
+   plays out and the user hits SPACE, we drop the user back to the menu;
+   pressing 4-6 from then on plays garbage until the program is reloaded. */
+
+static struct song_entry tape_entry;
+
+static void play_tape_song(void)
+{
+    unsigned char divider = 0;
+    unsigned char prev_mute_keys = 0;
+
+    tape_entry.data   = (const unsigned char *)TAPE_SONG_BASE;
+    tape_entry.title  = tape_title;
+    tape_entry.author = "from tape";
+    tape_entry.fmt    = tape_song_fmt;
+
+    set_border(1);
+
+    PTx_setup = tape_entry.fmt ? 0x02 : 0x00;
+    PTx_init((unsigned int)tape_entry.data);
+
+    cls();
+    at(0, 4);  puts_str("Now playing (tape):");
+    at(2, 2);
+    puts_str(tape_entry.fmt ? "(PT2) " : "(PT3) ");
+    puts_str_n(tape_entry.title, 24);
+    at(8,  2); puts_str("A: ");
+    at(9,  2); puts_str("B: ");
+    at(10, 2); puts_str("C: ");
+    at(21, 0); puts_str("1-3 mute   SPACE stop");
+    prev_bar[0] = prev_bar[1] = prev_bar[2] = BAR_FORCE;
+
+    for (;;) {
+        intrinsic_halt();
+        if (++divider == 6) {
+            divider = 0;
+        } else {
+            PTx_play();
+            if (mute_mask & 0x01) silence_channel(0);
+            if (mute_mask & 0x02) silence_channel(1);
+            if (mute_mask & 0x04) silence_channel(2);
+            draw_live_bars();
+        }
+
+        {
+            unsigned char keys = read_row(0xF7) & 0x07;
+            unsigned char pressed = keys & ~prev_mute_keys;
+            prev_mute_keys = keys;
+            if (pressed) mute_mask ^= pressed;
+        }
+
+        if (key_space()) break;
+    }
+
+    PTx_mute();
+    set_border(7);
+    while (key_space()) intrinsic_halt();
+}
+
+static void try_load_tape_song(void)
+{
+    cls();
+    at(8,  4);  puts_str("PLAY TAPE TO LOAD A SONG");
+    at(10, 4);  puts_str("(needs a CODE block)");
+    at(12, 4);  puts_str("BREAK during load to abort");
+
+    tape_extract_title();   /* will be filled by tape_read_block; placeholder */
+
+    if (load_song_from_tape()) {
+        tape_extract_title();
+        play_tape_song();
+    } else {
+        cls();
+        at(10, 4); puts_str("TAPE LOAD FAILED");
+        at(12, 4); puts_str("(any key to continue)");
+        while (!key_digit() && !key_enter() && !key_L() && !key_space())
+            intrinsic_halt();
+        while (key_digit() || key_enter() || key_L() || key_space())
+            intrinsic_halt();
+    }
+}
+
 /* ---- main ------------------------------------------------------------------ */
 
 void main(void)
@@ -455,12 +656,13 @@ void main(void)
     for (;;) {
         draw_menu();
 
-        while (key_digit() || key_enter()) intrinsic_halt();
+        while (key_digit() || key_enter() || key_L()) intrinsic_halt();
 
         for (;;) {
             intrinsic_halt();
 
             if (key_enter()) goto quit;
+            if (key_L())     { try_load_tape_song(); break; }
 
             d = key_digit();
             if (d >= 1 && d <= song_count) { play_song(d - 1); break; }
