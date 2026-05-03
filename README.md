@@ -130,15 +130,24 @@ Three CODE blocks make up the player tape:
 
 | Block | Address | Bytes | Contents |
 | --- | --- | --- | --- |
-| 1 | `$8000` | ~7.6 KB | C code: CRT0, AY backend, picker, scan/play logic |
-| 2 | `$C000` | 2.6 KB  | PTxPlay (asm-only universal PT2/PT3 driver) |
-| — | `$CB00` | up to 13 KB | Tape song slot — the currently loaded song |
+| 1 | `$8000` | ~8-15 KB | C code: CRT0, AY backend, picker / tracker logic |
+| 2 | `$CC00` | 2.6 KB   | PTxPlay (asm-only universal PT2/PT3 driver) |
+| — | `$D700` | ~9 KB    | Tape song slot — the currently loaded song |
 
-PTxPlay is assembled at its final address by sjasmplus from
-`vendor/PTxPlay/PTxPlay.asm` (with a TS2068 port-write block spliced
-into the AY-output routine). Its symbol addresses are pulled into a
-generated `ptxplay_addrs.h` so the C side never hardcodes addresses
-that would silently break if the layout shifts.
+(Exact addresses follow the Makefile constants; the values above match
+the current build. The player binary is much smaller than the tracker,
+so a player-only build could move PTxPlay considerably lower and gain
+song slot — that's a future per-app-config refinement.)
+
+`PTX_ORIGIN_HEX` and `TAPE_SONG_BASE_HEX` in the Makefile are the single
+source of truth for those two addresses. The Makefile passes the origin
+to `tools/build_ptxplay_asm.py` (which writes `org $...` into the
+generated PTxPlay.asm) and the song base to the C compiler as a `-D`
+macro, so the two stay in sync without hardcoding. PTxPlay's symbol
+addresses are pulled into a generated `ptxplay_addrs.h` so the C side
+never hardcodes them either. If the C binary outgrows PTX_ORIGIN, the
+`tracker.tap` / `pt3-player.tap` rules abort with an explicit error
+message telling you to bump the constant.
 
 ## Credits
 

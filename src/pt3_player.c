@@ -108,10 +108,15 @@ __asm
 __endasm;
 }
 
-/* Tape-loaded song lives in the same memory region as the bundled high
+/* TAPE_SONG_BASE is normally provided by the Makefile via -D so it stays in
+   sync with PTxPlay's origin. Fall back to a sane default if this file is
+   read by an IDE / standalone clang that doesn't see the Make recipe.
+   Tape-loaded song lives in the same memory region as the bundled high
    group; loading from tape DESTROYS the bundled songs in slots 4-6 until
    the user reloads the .tap. The C const arrays in low memory survive. */
-#define TAPE_SONG_BASE  0xCB00
+#ifndef TAPE_SONG_BASE
+#define TAPE_SONG_BASE  0xC000
+#endif
 
 static unsigned char tape_header[17];
 static unsigned char tape_song_loaded;
@@ -143,7 +148,7 @@ static unsigned char load_song_from_tape(void)
        we treat as PT2. (PT2 has no fixed magic.) */
     {
         const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
-        tape_song_fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+        tape_song_fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o' && d[11] == '3') ? 0 : 1;
     }
     tape_song_loaded = 1;
     return 1;
@@ -162,6 +167,28 @@ static void tape_extract_title(void)
         if (tape_title[i] != ' ') last = i + 1;
     }
     tape_title[last] = 0;
+}
+
+/* Compare the tape header's 10-byte filename against a directory entry's
+   null-terminated name (space-padded out to 10). Returns 1 on full match.
+   Mirror of the helper in src/tracker.c so play_index can do name-matched
+   loading like ROM LOAD "name"CODE -- tape-position-independent. */
+static unsigned char header_name_matches(const char *target_name)
+{
+    unsigned char i;
+    unsigned char past_null = 0;
+    for (i = 0; i < 10; i++) {
+        unsigned char hc = tape_header[1 + i];
+        unsigned char tc;
+        if (past_null || target_name[i] == 0) {
+            past_null = 1;
+            tc = ' ';
+        } else {
+            tc = (unsigned char)target_name[i];
+        }
+        if (hc != tc) return 0;
+    }
+    return 1;
 }
 
 /* ---- In-memory tape directory ---------------------------------------------
@@ -701,7 +728,7 @@ static void scan_tape(void)
             e->length = tape_header[11] | ((unsigned int)tape_header[12] << 8);
             {
                 const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
-                e->fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+                e->fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o' && d[11] == '3') ? 0 : 1;
             }
 
             at(4 + dir_count, 2);
@@ -714,18 +741,19 @@ static void scan_tape(void)
     }
 }
 
-/* Read tape forward, counting CODE blocks; play the (target+1)-th one. */
+/* Name-matched load (like ROM LOAD "name"CODE). Reads each tape header
+   in turn until the filename matches the chosen directory entry, loads
+   that one's data, and plays it. Tape-position-independent on emulators;
+   on real cassette the user still has to physically rewind to ensure the
+   matching header is ahead of the tape head. */
 static unsigned char play_index(unsigned char target)
 {
-    unsigned char code_n = 0;
-
     cls();
     draw_banner();
     draw_status(2, "-- Loading --");
-    at(5, 4);  puts_str("Loading song ");
-    put_dec(target + 1);
+    at(5, 4);  puts_str("Loading ");
+    puts_str(directory[target].name);
     puts_str("...");
-    at(7, 4);  puts_str("(rewind tape if needed)");
     at(21, 0); puts_str("CAPS+SPACE abort");
 
     while (1) {
@@ -742,18 +770,19 @@ static unsigned char play_index(unsigned char target)
             return 0;
         }
 
-        if (tape_header[0] == 3) {
-            if (code_n == target) {
-                tape_extract_title();
-                {
-                    const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
-                    unsigned char fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
-                    play_buffer(directory[target].name, fmt);
-                }
-                return 1;
+        if (tape_header[0] == 3
+         && header_name_matches(directory[target].name)) {
+            tape_extract_title();
+            {
+                const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
+                unsigned char fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o' && d[11] == '3') ? 0 : 1;
+                play_buffer(directory[target].name, fmt);
             }
-            code_n++;
+            return 1;
         }
+        /* Not the right song; loop. tape_load_one_song already loaded the
+           data block as a side-effect (overwriting TAPE_SONG_BASE), but
+           the next iteration will overwrite it again with the next song. */
     }
 }
 
@@ -773,7 +802,7 @@ static void play_all(void)
 
         if (tape_header[0] == 3) {
             const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
-            unsigned char fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
+            unsigned char fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o' && d[11] == '3') ? 0 : 1;
             tape_extract_title();
             if (play_buffer(tape_title, fmt) == PLAY_BREAK) return;
         }

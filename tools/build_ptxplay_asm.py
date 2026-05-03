@@ -5,8 +5,20 @@ We strip the original's leading test driver and trailing incbin/scratch,
 flip the conditional-assembly switches to TS2068, and splice in a TS2068
 ROUT branch. The resulting file assembles to a flat binary (.bin) that we
 load at a fixed address at runtime and call into via inline-asm thunks.
+
+Usage: build_ptxplay_asm.py [ORIGIN_HEX]
+
+ORIGIN_HEX is the 16-bit load address PTxPlay assembles at, as a hex
+string (no `$` or `0x` prefix), e.g. "B500". Defaults to "C000". Picking
+this dynamically based on the C binary's tail lets us shrink the gap
+between the C image and the song slot, instead of leaving 5+ KB of dead
+RAM between them.
 """
 import pathlib, re, sys
+
+origin_hex = sys.argv[1].upper() if len(sys.argv) > 1 else 'C000'
+if not re.fullmatch(r'[0-9A-F]{4}', origin_hex):
+    sys.exit(f'bad origin hex {origin_hex!r}: want a 4-char hex string')
 
 src_path = pathlib.Path('vendor/PTxPlay/PTxPlay.asm')
 dst_path = pathlib.Path('build/PTxPlay.asm')
@@ -61,15 +73,17 @@ prelude = [
     'MSX    EQU 0',
     'RC     EQU 0',
     'TS2068 EQU 1',
-    'CurPosCounter EQU 0',
+    'CurPosCounter EQU 1',  # exposes a CurPos byte at START+11 holding the
+                            # current position-list index; we read it from
+                            # the editor to highlight the playing pattern.
     'ACBBAC        EQU 0',
     'LoopChecker   EQU 1',  # PTxPlay sets bit 7 of SETUP each time the song
                             # passes its loop point; we use that for auto-advance.
     'Id            EQU 0',
     'Release       EQU 1',
     '',
-    '    ORG $C000        ; final runtime address; the .bin is position-dependent',
-    '                     ; (self-modifying) so this must match the memcpy target.',
+    f'    ORG ${origin_hex}        ; final runtime address; the .bin is position-dependent',
+    '                     ; (self-modifying) so this must match the LOAD address.',
     '',
     '; The original used MDLADDR as a fallback song-data label after the code,',
     '; for the START+0 entry. We never use START+0 (callers always pass HL),',
