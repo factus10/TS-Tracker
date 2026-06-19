@@ -1,8 +1,15 @@
-# TS Tracker — PT2 / PT3 player for the Timex/Sinclair 2068
+# TS Tracker — PT2 / PT3 player + editor for the Timex/Sinclair 2068
 
-A standalone music player for the **Timex/Sinclair 2068** that reads
-**ProTracker 2 (`.pt2`) and Vortex Tracker II / ProTracker 3 (`.pt3`)** songs
-straight off cassette and plays them through the AY-3-8912.
+Two companion apps for the **Timex/Sinclair 2068**:
+
+- **`pt3-player`** — a standalone music player that reads **ProTracker 2
+  (`.pt2`) and Vortex Tracker II / ProTracker 3 (`.pt3`)** songs straight off
+  cassette and plays them through the AY-3-8912.
+- **`tracker`** — a full on-machine pattern editor: load a PT3 to rework or
+  start one from scratch, edit notes/volumes/rests across the three channels,
+  design instruments (the sample and ornament editors), and save back to tape.
+  See the user manual: [docs/manual.md](docs/manual.md) (with a printable
+  dot-matrix [PDF](docs/manual.pdf)).
 
 Built with [z88dk](https://github.com/z88dk/z88dk) (SDCC backend) for the
 C side, and [sjasmplus](https://github.com/z00m128/sjasmplus) for the asm
@@ -13,7 +20,7 @@ PT2/PT3 driver. Output is a single Spectrum-format `.tap` that loads on
 ## What it does
 
 - Boots to a Sinclair-style menu (TIMEX banner, status line, INVERSE-key
-  hotkets) and waits for you to insert a tape.
+  hotkeys) and waits for you to insert a tape.
 - **Scans** the tape: reads every header, lists each CODE block in a
   9-entry directory, auto-detects PT2 vs PT3 from the file's data magic.
 - **Plays** any song on demand by index (1-9), or **plays all songs**
@@ -115,8 +122,13 @@ Channel mute persists across songs in the same session.
 - [x] Tape directory scan with duplicate-detection
 - [x] Selective play, play-all, rescan
 - [x] Channel mute
+- [x] **Tracker app** — decoded-model pattern editor: note/volume/rest entry,
+      beat-lined grid, in-editor playback, per-cell sample + ornament, full
+      sample and ornament editors, and save-back to tape. See `docs/manual.md`
+      and `docs/architecture.md`.
 - [ ] TS-PICO native file loading (load any `.pt3` by filename via TPI)
-- [ ] Tracker UI (pattern grid, sample/ornament editors, save)
+- [ ] Live playback while editing; tempo edit; multi-pattern real-song
+      verification on hardware (see `TODO.md`)
 
 ## Build details
 
@@ -126,26 +138,23 @@ Spectrum-flavoured `.tap`s, and our AY backend talks directly to the
 TS2068's `$F5` / `$F6` ports so the `+zx` clib's Spectrum-128 AY
 assumptions never come into play.
 
-Three CODE blocks make up the player tape:
+Each tape is C code at `$8000`, then PTxPlay and a tape song slot above it.
+**The two apps have decoupled memory maps** — the tracker's editor needs more
+code room, so it runs PTxPlay higher with a smaller slot; the player keeps the
+original, roomier layout:
 
-| Block | Address | Bytes | Contents |
-| --- | --- | --- | --- |
-| 1 | `$8000` | ~8-22 KB | C code: CRT0, AY backend, picker / tracker logic |
-| 2 | `$D700` | 2.6 KB   | PTxPlay (asm-only universal PT2/PT3 driver) |
-| — | `$E200` | ~7.3 KB  | Tape song slot — the currently loaded song |
+| App | C code | PTxPlay | Song slot | Notes |
+| --- | --- | --- | --- | --- |
+| player  | `$8000` | `$D700` | `$E200` (~6.4 KB) | small binary, full slot |
+| tracker | `$8000` | `$DAC0` | `$E500` (~5.5 KB) | + decoded song model at `$6000` |
 
-(Exact addresses follow the Makefile constants; the values above match
-the current build. The player binary is much smaller than the tracker,
-so a player-only build could move PTxPlay considerably lower and gain
-song slot — that's a future per-app-config refinement.)
-
-`PTX_ORIGIN_HEX` and `TAPE_SONG_BASE_HEX` in the Makefile are the single
-source of truth for those two addresses. The Makefile passes the origin
-to `tools/build_ptxplay_asm.py` (which writes `org $...` into the
-generated PTxPlay.asm) and the song base to the C compiler as a `-D`
-macro, so the two stay in sync without hardcoding. PTxPlay's symbol
-addresses are pulled into a generated `ptxplay_addrs.h` so the C side
-never hardcodes them either. If the C binary outgrows PTX_ORIGIN, the
+`PLAYER_PTX_ORIGIN_HEX`/`PLAYER_SONG_BASE_HEX` and `PTX_ORIGIN_HEX`/
+`TAPE_SONG_BASE_HEX` (the tracker's) in the Makefile are the single source of
+truth. Each app builds its own PTxPlay at its own origin (the player's into
+`build/player/`); the origin goes to `tools/build_ptxplay_asm.py` and the song
+base to the C compiler as a per-app `-D`. PTxPlay's symbol addresses are pulled
+into a generated `ptxplay_addrs.h` per origin, so the C side never hardcodes
+them. If a C binary outgrows its PTX origin, the
 `tracker.tap` / `pt3-player.tap` rules abort with an explicit error
 message telling you to bump the constant.
 
@@ -177,6 +186,9 @@ Upstream:
 src/
   ay_ts2068.[ch]          AY-3-8912 backend (TS2068 ports $F5/$F6)
   pt3_player.c            picker UI, scan, directory, play loop, viz
+  tracker.c               pattern editor: decoded model, grid, instrument editors
+  pt_engine.[ch]          shared PTxPlay wrapper (INIT/PLAY/MUTE thunks, tempo)
+  ts_io.[ch]              shared screen + keyboard primitives
   smoketest.c             "does the AY make noise" sanity check (independent)
   pt3_mvp.c, PT3player.*  legacy single-song MVP using mvac7's C-only player
 tools/
