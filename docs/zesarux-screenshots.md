@@ -253,3 +253,50 @@ cmd('send-keys-string 100 \\n')
 - Multiple connections are OK but commands are serialized
 - After a breakpoint fires, the emulator is paused; use `run` to resume
 - `write-memory-raw` works while the CPU is running (no need to pause)
+
+## Driving the keyboard — three traps that look like a hung program
+
+Verifying the tracker UI cost hours to three separate input-eaters. Each makes
+the program look frozen at the splash even though the CPU is running fine
+(`get-registers` shows PC cycling through the splash wait loop). In order:
+
+1. **Use an ABSOLUTE path for `--tape`.** Launched via `nohup`, ZEsarUX does not
+   resolve a relative path against the shell's `cd`, so `--tape build/x.tap`
+   fails with a modal **"Unable to open tap input file"** ERROR popup — which
+   then swallows every keystroke. Always pass the full path.
+2. **Dismiss the "First aid of the day" OSD tip dialog first.** On launch ZEsarUX
+   opens a modal tip popup that eats all `send-keys-*` (they go to the OSD, not
+   the machine) and makes `enter-cpu-step` error with "close the menu". Clear it
+   right after launch with `send-keys-ascii 200 13` (ENTER hits its `<OK>`).
+3. **Window focus.** Bring the SDL window frontmost before sending keys:
+   `osascript -e 'tell application "System Events" to set frontmost of (first process whose name contains "zesarux") to true'`.
+
+Recipe: launch (absolute `--tape`) → sleep ~12 → `send-keys-ascii 200 13` (kill
+OSD) → focus → then drive keys. Use **short** key holds; a long `send-keys`
+hold can bleed across screen transitions and trigger the next screen's action.
+
+### Verifying C logic without the keyboard (most reliable)
+
+When the keyboard is fighting you, drive functions directly. Build a symbol map:
+
+```bash
+zcc +zx -compiler=sdcc -clib=sdcc_iy ... -create-app -m -o build/trkm <srcs>
+grep -iE '^_rebuild_song|^_start_new_song|^_num_pat_total' build/trkm.map
+```
+
+Then over ZRCP, call a function and inspect memory (PC parks at a self-jump
+trap on return):
+
+```
+enter-cpu-step
+write-memory-raw 23296 18FE      # 0x5B00 = JR -2 (parking loop; printer buffer, unused)
+write-memory-raw 64254 005B      # sentinel return = 0x5B00 at SP
+set-register SP=FAFEh
+set-register PC=<fn>h
+exit-cpu-step                    # free-run (NOT `run`); sleep; then enter-cpu-step
+read-memory <addr-DECIMAL> <len>
+```
+
+Remember GOTCHA #1: `read-memory` / `write-memory-raw` take **decimal**
+addresses; `set-register` takes hex. This is how the decoded-model rebuild was
+verified byte-for-byte before the keyboard cooperated.

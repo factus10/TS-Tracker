@@ -1,143 +1,85 @@
-# TS Tracker — TODO
+# TS Tracker — status & TODO
 
-Outstanding work on the tracker (`src/tracker.c`). The player
-(`src/pt3_player.c`) is shipped and stable; items here only affect the
-editing app.
+Work on the tracker (`src/tracker.c`). The player (`src/pt3_player.c`) is
+shipped and stable. For how the editor is built, see `docs/architecture.md`;
+for emulator-verification lore see `docs/zesarux-screenshots.md`.
 
-## Splash + first screen
+## Current status (June 2026)
 
-- [ ] **Splash screen** — full-screen launch state ahead of the
-      current scan-prompt. TIMEX banner across the top (matching
-      our existing style), the project name and version centred,
-      and "**a 64K Software production**" attribution near the
-      bottom. Press any key (or wait N seconds) to proceed to the
-      first menu.
-- [ ] **"New song" on the first screen** — alongside `S`can / `Q`uit,
-      add `N`ew which jumps straight into an empty pattern view
-      (no tape required). The directory becomes the second possible
-      destination from the splash, not the only one.
+The editor is feature-complete for single-song authoring and editing:
 
-## In progress: save-back
+- **No-tape authoring** — splash → `N`ew song drops into an empty pattern.
+- **Decoded-model editing** — all patterns decoded in RAM; edits are instant and
+  lossless across pattern switches; **no manual commit**. The PT3 byte stream is
+  regenerated on demand (`rebuild_song`) only for play/save.
+- **Save to tape** — `S` rebuilds + writes a fresh CODE block via the EXROM
+  SA-BYTES trampoline; 8-char name + auto-incrementing 2-hex version suffix.
+- **Denser grid** — 16 visible rows with yellow/cyan beat-line banding.
+- **In-editor playback** — `A` play song, `L` loop current pattern.
+- **Help** — `H` shows a full key reference.
 
-Edits in `pattern_view` currently disappear when the user switches
-patterns or quits. The save-back project makes them persist into the
-song slot at `TAPE_SONG_BASE` and writes the rebuilt song to a fresh
-tape block. Phasing:
+Verified via direct function execution (byte-level: model→rebuild→PT3,
+empty-row-0 REST) and the real UI (new song → note → `S` saves with the edit).
+All committed to `main`.
 
-1. **Encoder** — `pattern_view` → PT3 channel byte stream, with
-   skip-count compression and stateful sample / volume / ornament
-   tracking. Build a round-trip test (decode → encode → decode, diff).
-2. **Whole-song rebuild** — re-emit pattern table + concatenated
-   pattern data in place inside the song slot, fixing up every
-   downstream offset. Verify the rebuilt blob still plays via the
-   `pt3-player.tap`.
-3. **Tape SA-BYTES** — write a fresh CODE block via the EXROM
-   page-in trampoline (mirror of the existing LD-BYTES path).
-   8-char filename from the user, with an auto-incrementing 2-digit
-   hex version suffix appended (`MYSONG 01`, `MYSONG 02`, …).
-4. **Editor wiring** — `S` to save, dirty flag, switch-warning
-   prompt, version counter.
+## Known issues / risks
 
-**Save-time constraint:** refuse if any active channel has an empty
-row 0 — PT3 always reads commands for row 0, so an empty cell there
-isn't representable. Cursor jumps to the offending cell.
+- **Not yet tested in the UI: real multi-pattern PT3 load + pattern switching.**
+  New-song templates only have one pattern. The logic is identical to the
+  verified single-pattern path, but exercise it on a real song (Fuse/hardware).
+- **`rebuild_song` assumes standard PT3 layout** (pattern table + data last,
+  after instrument defs). Non-standard songs that interleave them would be
+  corrupted on rebuild — not guarded. See `docs/architecture.md`.
+- **Ornaments are dropped** (cell_t has no ornament field). Pre-existing; adding
+  one costs ~4 patterns of capacity.
+- **`MAX_PATTERNS = 14`** — sized to the `$6000` gap and roughly matched to the
+  6.4 KB save budget. Bigger songs need memory-map surgery.
+- **PT2 songs are view/play-only** — no PT2 decoder; the editor refuses them.
 
-## Editor UX backlog
+## Remaining backlog (committed scope, unbuilt)
 
-- [ ] Hex sample entry — right cursor column edits the sample digit
-      instead of the note
-- [ ] Octave-shift current cell up / down as a separate operation
-      from setting the base octave (currently the same key does both)
-- [ ] Live playback while editing — PTxPlay running against the
-      current edit buffer; per-channel mute keys carry over from the
-      player
-- [ ] Create new songs from scratch, not only edit tape-loaded ones
-      (the "New song" splash entry above). Per the A.Y. Tracker analysis
-      in `docs/aytracker-analysis.md`, the empty template can be a tiny
-      `static const unsigned char empty_pt3[]` — header + one position +
-      one pattern with three `$D0` FIN-only channel streams. memcpy into
-      TAPE_SONG_BASE, drop into edit mode. Doesn't need the full
-      "synthesize a valid PT3 from scratch" project we previously
-      sketched.
+- [ ] **Hex sample entry** — right cursor column edits the sample digit.
+- [ ] **Octave-shift current cell** up/down as a separate op from setting the
+      base octave (today one key does both).
+- [ ] **Live playback while editing** — PTxPlay running against the edit buffer;
+      per-channel mute keys carried over from the player.
+- [ ] **Tempo / speed editing** — we read `song[100]` but offer no way to change
+      it (A.Y. Tracker `T`-mode style up/down).
+- [ ] **Multi-pattern UI verification pass** on a real song (see Known issues).
 
-## To consider — features from the origin programs
+## To consider — ideas from the origin programs
 
-Catalog of ideas surfaced by reading **Sound Tracker 1.1** and
-**A.Y. Tracker v1.0** in `origin/`. Not committed scope; revisit when
-core editing + save-back land.
+From **A.Y. Tracker** / **Sound Tracker 1.1** (`origin/`). Not committed scope.
 
-From A.Y. Tracker (Jonathan Cauldwell, 2005) — closest cousin to what
-we're building, single-screen menu + edit mode:
+- [ ] **Position-list / labelled-loop editor** — expose PT3's loop-position byte
+      and let the user reorder/repeat patterns. (Pattern *content* is editable;
+      the song's *arrangement* is not yet.)
+- [ ] **Compile to standalone playback `.tap`** — PTxPlay + a song + a tiny
+      BASIC `RANDOMIZE USR <init>: PAUSE 0` stub that auto-plays on load. No
+      firmware change; use `tzxtools` to assemble. "Drop a `.pt3` in, get a
+      self-contained chip-tune cassette."
+- [ ] **More confirmation prompts** for destructive actions (clear-channel
+      already confirms; abandon-edits-on-switch is now moot — edits persist).
+- [ ] **`O`/`P`/`Q`/`CAPS` cursor alt** to CAPS+5/6/7/8 — but `O`/`P` are now
+      pattern prev/next, so this needs a rebind.
 
-- [ ] **Note preview** — cursor on a cell, press a key, hear the
-      note through the AY before committing. (A.Y. Tracker uses SPACE
-      for this; we already use SPACE for "clear note", so we'd need
-      to rebind one of them.) Implementation per the A.Y. analysis:
-      ~30 LOC, program AY R0/R1 (tone period) + R7 (tone enable) +
-      R8 (channel A volume) directly via `ay_ts2068.c`, no PTxPlay
-      involvement; stop on key release.
-- [ ] **Play current pattern / song** from the editor without
-      leaving to the player app (`P` key in their model).
-- [ ] **Insert / delete row** at cursor — push later rows down
-      (insert) or pull them up (delete). Currently we can only
-      mutate the cell at cursor. This is core tracker UX.
-- [ ] **Clear channel** — wipe one channel's events for the whole
-      pattern in a single key.
-- [ ] **Jump to row 0** of the current pattern (`R` in their model;
-      complements our `F` jump-to-pattern).
-- [ ] **Tempo / speed editing** — currently we read the song's
-      speed but offer no way to change it. Up/down on a tempo
-      indicator like A.Y. Tracker's `T` mode.
-- [ ] **Volume per cell** — PT3 supports it (we already decode it),
-      we just don't expose entry. UI: a third sub-field within each
-      channel cell, or a modal `U` mode like A.Y. Tracker.
-- [ ] **Rest event** — explicit "stop sounding here" distinct from
-      empty (no event). Maps to PT3's RELEASE; we already display
-      it as `-=-` but don't let the user enter one.
-- [ ] **Labelled loops (1-3)** — A.Y. Tracker lets the user mark
-      sections to loop. PT3's position list already supports this
-      via the loop-position byte; could expose a position-list
-      editor.
-- [ ] **Compile to standalone playback routine** — produce a single
-      `.tap` containing PTxPlay (already built at the current PTX_ORIGIN)
-      + a song + a tiny BASIC stub `RANDOMIZE USR <init>: PAUSE 0`, and
-      the song auto-plays on load. **No firmware change required.** Use
-      `tzxtools` (already on user's system) to assemble the .tap rather
-      than hand-rolling the block-construction logic. Pitch: "drop a
-      `.pt3` in, get a self-contained chip-tune cassette."
-- [ ] **Help page** — full key reference accessible from the menu
-      and from edit mode, instead of the cramped two-line hint.
-- [ ] **Confirmation prompts** for destructive actions (clear
-      channel, abandon edits on switch). A.Y. Tracker's `Are you
-      sure? (Y/N)` idiom.
-
-From Sound Tracker 1.1 — minimal info available without running it,
-but worth flagging:
-
-- [ ] **`O`/`P`/`Q`/`CAPS` cursor support** as an alternate to
-      CAPS+5/6/7/8. Old-school Spectrum convention; some users
-      have muscle memory for it. Also matches Sound Tracker's
-      cassette-era expectations.
-
-Visual presentation notes (already informing our look):
-
-- The TIMEX-banner / status-banner / INVERSE-hotkey idiom we
-  cribbed from `nofile.tap` is shared by A.Y. Tracker and
-  feels period-correct. Keep.
-- Both origin programs are monochrome / two-tone and use full-
-  screen text layouts. Our coloured volume bars (in the player)
-  are a nice modern addition — worth keeping for live-playback
-  preview when that lands.
+Presentation notes (keep): the TIMEX banner / status-banner / INVERSE-hotkey
+idiom (cribbed from `nofile.tap`, shared by A.Y. Tracker) is period-correct.
+Coloured volume bars from the player are worth reusing for live-playback preview.
 
 ## Done
 
-- [x] PT3 pattern decoder + scrollable pattern view
-- [x] Cell-level cursor (row hex inverse + active channel inverse)
-- [x] Channel switch via left / right
-- [x] Piano-style note entry (`Z..M`, lower octave)
-- [x] Octave selection (`1`-`8`) with retune of existing note
-- [x] Free-memory display (`Free: NNNNN bytes`)
-- [x] Jump to specific pattern (`F` + 2 hex digits)
-- [x] Smart redraw: incremental cursor moves + diff on pattern switch
-- [x] Memory map reorg (`$B500` PTxPlay, `$C000` song slot,
-      +2.8 KB song headroom)
+- [x] PT3 pattern decoder + scrollable pattern view; cell-level cursor
+- [x] Piano note entry (`Z..M`), octave select (`1`-`8`) with retune
+- [x] Note preview through the AY on entry; volume-per-cell entry (`U` + `0..F`)
+- [x] Rest event (`ENTER`); clear note (`SPACE`); clear channel (`9`)
+- [x] Insert / delete row (`I` / `CAPS+0`); jump-to-pattern (`F`); jump-to-row-0 (`R`)
+- [x] In-editor play song (`A`) / loop pattern (`L`)
+- [x] Splash screen; **`N`ew song** (no tape needed)
+- [x] **Save-back** — encoder, whole-song rebuild, tape SA-BYTES, editor wiring
+- [x] **Decoded-model rearchitecture** — model is source of truth, auto-rebuild,
+      no manual commit; empty-row-0 emits a REST instead of refusing
+- [x] **Denser grid (16 rows) + beat-line banding**
+- [x] **Help page** (`H`, full key reference)
+- [x] Shared `pt_engine` module; memory reclamation (~1.6 KB freed)
+- [x] Free-memory display; smart incremental redraw
