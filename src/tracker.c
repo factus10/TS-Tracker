@@ -1390,20 +1390,23 @@ static void draw_oct_indicator(unsigned char octave)
     putch('0' + octave);
 }
 
-/* Mode indicator label at col 22 ("Oct:" in default mode, "Vol:" in volume
-   edit mode). The 4 chars overwrite whatever draw_pattern_frame painted. */
-static void draw_mode_label(unsigned char vol_mode)
+/* Edit-mode indicator label at col 22: Oct / Vol / Smp (mode 0/1/2). */
+static void draw_mode_label(unsigned char mode)
 {
     at(2, 22);
-    puts_str(vol_mode ? "Vol:" : "Oct:");
+    puts_str(mode == 2 ? "Smp:" : (mode == 1 ? "Vol:" : "Oct:"));
 }
 
-/* Single hex digit at col 26 -- used for the volume value in vol mode.
-   Octave value uses draw_oct_indicator (decimal 1..8). */
-static void draw_vol_value(unsigned char vol)
+/* The value field at cols 26-27, reflecting the active edit mode: octave
+   digit (Oct), 1-hex volume (Vol), or 2-hex sample 00..1F (Smp). Always
+   writes both columns so a wider value never leaves a stale digit behind. */
+static void draw_cell_value(unsigned char mode, unsigned char octave,
+                            const cell_t *c)
 {
     at(2, 26);
-    put_hex1(vol);
+    if      (mode == 2) put_hex2(c->sample);             /* 2 chars */
+    else if (mode == 1) { put_hex1(c->volume); putch(' '); }
+    else                { putch('0' + octave); putch(' '); }
 }
 
 /* Redraw all VIEW_HEIGHT rows of the grid against pattern_view[] starting
@@ -2050,9 +2053,9 @@ static void show_help_page(void)
     at(12, 2);  puts_str("I=insert row  CAPS+0=del");
     at(13, 2);  puts_str("9 = clear channel column");
 
-    at(15, 0);  puts_str("Edit (volume mode):");
-    at(16, 2);  puts_str("U toggles vol mode");
-    at(17, 2);  puts_str("0..F = set cell volume");
+    at(15, 0);  puts_str("Vol / sample (U cycles):");
+    at(16, 2);  puts_str("U: Oct / Vol / Smp mode");
+    at(17, 2);  puts_str("0..F sets vol or sample");
 
     at(18, 0);  puts_str("Save / play:");
     at(19, 2);  puts_str("W=save tape (auto-rebuild)");
@@ -2072,7 +2075,7 @@ static void show_pattern(unsigned char idx)
     unsigned char cursor = 0;
     unsigned char cursor_ch = 0;
     unsigned char octave = 4;            /* 1..8; PT3 note = (oct-1)*12+semi */
-    unsigned char vol_mode = 0;          /* 0 = oct mode, 1 = volume edit mode */
+    unsigned char edit_mode = 0;         /* 0 = Oct, 1 = Vol, 2 = Smp */
     unsigned char top;
     unsigned char d;
     signed char   semi;
@@ -2120,8 +2123,8 @@ static void show_pattern(unsigned char idx)
                 draw_row_indicator(new_cursor);
             }
             cursor = new_cursor;
-            if (vol_mode) draw_vol_value(
-                pattern_view[(unsigned int)cursor * 3 + cursor_ch].volume);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
             while (nav_down()) intrinsic_halt();
         }
         else if (nav_up() && cursor > 0) {
@@ -2135,38 +2138,36 @@ static void show_pattern(unsigned char idx)
                 draw_row_indicator(new_cursor);
             }
             cursor = new_cursor;
-            if (vol_mode) draw_vol_value(
-                pattern_view[(unsigned int)cursor * 3 + cursor_ch].volume);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
             while (nav_up()) intrinsic_halt();
         }
         else if (nav_right() && cursor_ch + 1 < 3) {
             cursor_ch++;
             redraw_cursor_row(top, cursor, cursor_ch);
             draw_ch_indicator(cursor_ch);
-            if (vol_mode) draw_vol_value(
-                pattern_view[(unsigned int)cursor * 3 + cursor_ch].volume);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
             while (nav_right()) intrinsic_halt();
         }
         else if (nav_left() && cursor_ch > 0) {
             cursor_ch--;
             redraw_cursor_row(top, cursor, cursor_ch);
             draw_ch_indicator(cursor_ch);
-            if (vol_mode) draw_vol_value(
-                pattern_view[(unsigned int)cursor * 3 + cursor_ch].volume);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
             while (nav_left()) intrinsic_halt();
         }
         else if (key_U()) {
-            /* U = toggle between octave (default) and volume edit modes.
-               In vol mode, hex digits 0..F set the cursor cell's volume.
-               The mode indicator label at col 22 swaps "Oct:"/"Vol:" and
-               the value at col 26 reflects the active mode's value. */
-            cell_t *c;
+            /* U = cycle the right-hand edit mode: Oct -> Vol -> Smp -> Oct.
+               In Vol mode hex 0..F sets the cursor cell's volume; in Smp mode
+               hex digits roll a 2-digit sample number (00..1F) into the cell.
+               The label at col 22 and the value at col 26-27 follow the mode. */
             while (key_U()) intrinsic_halt();
-            vol_mode = !vol_mode;
-            draw_mode_label(vol_mode);
-            c = &pattern_view[(unsigned int)cursor * 3 + cursor_ch];
-            if (vol_mode) draw_vol_value(c->volume);
-            else          draw_oct_indicator(octave);
+            edit_mode = (unsigned char)((edit_mode + 1) % 3);
+            draw_mode_label(edit_mode);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
         }
         else if (key_I()) {
             /* I = insert empty row at cursor (rows below shift down; the
@@ -2176,8 +2177,8 @@ static void show_pattern(unsigned char idx)
             insert_row(cursor);
             draw_pattern_grid(top, cursor, cursor_ch);
             draw_row_indicator(cursor);
-            if (vol_mode) draw_vol_value(
-                pattern_view[(unsigned int)cursor * 3 + cursor_ch].volume);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
         }
         else if (key_delete()) {
             /* CAPS+0 (DELETE) = remove the row at cursor; rows below
@@ -2186,20 +2187,26 @@ static void show_pattern(unsigned char idx)
             delete_row(cursor);
             draw_pattern_grid(top, cursor, cursor_ch);
             draw_row_indicator(cursor);
-            if (vol_mode) draw_vol_value(
-                pattern_view[(unsigned int)cursor * 3 + cursor_ch].volume);
+            draw_cell_value(edit_mode, octave,
+                &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
         }
-        else if (vol_mode) {
-            /* Volume edit mode: every hex digit 0..F (including the letter
-               keys A..F that overlap piano notes) goes to the cursor cell's
-               volume, then this branch swallows the iteration so the
-               command-letter handlers below don't fire. Press U again to
-               leave vol mode and get those letters back. */
+        else if (edit_mode != 0) {
+            /* Vol / Smp edit mode: every hex digit 0..F (including the letter
+               keys A..F that overlap piano notes) goes to the cursor cell,
+               then this branch swallows the iteration so the command-letter
+               handlers below don't fire. Press U to cycle back to Oct mode
+               and get those letters back. */
             signed char h = read_hex_key();
             if (h >= 0) {
                 cell_t *c = &pattern_view[(unsigned int)cursor * 3 + cursor_ch];
-                c->volume = (unsigned char)h;
-                draw_vol_value(c->volume);
+                if (edit_mode == 1) {
+                    c->volume = (unsigned char)h;
+                } else {
+                    /* Smp: roll a 2-hex-digit sample number, clamp to 0..31. */
+                    c->sample = (unsigned char)(((c->sample << 4) | (unsigned char)h) & 0x1F);
+                    redraw_cursor_row(top, cursor, cursor_ch);  /* refresh `s` column */
+                }
+                draw_cell_value(edit_mode, octave, c);
                 while (read_hex_key() >= 0) intrinsic_halt();
             }
         }
