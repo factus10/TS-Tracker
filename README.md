@@ -130,9 +130,9 @@ Three CODE blocks make up the player tape:
 
 | Block | Address | Bytes | Contents |
 | --- | --- | --- | --- |
-| 1 | `$8000` | ~8-15 KB | C code: CRT0, AY backend, picker / tracker logic |
-| 2 | `$CC00` | 2.6 KB   | PTxPlay (asm-only universal PT2/PT3 driver) |
-| — | `$D700` | ~9 KB    | Tape song slot — the currently loaded song |
+| 1 | `$8000` | ~8-22 KB | C code: CRT0, AY backend, picker / tracker logic |
+| 2 | `$D700` | 2.6 KB   | PTxPlay (asm-only universal PT2/PT3 driver) |
+| — | `$E200` | ~7.3 KB  | Tape song slot — the currently loaded song |
 
 (Exact addresses follow the Makefile constants; the values above match
 the current build. The player binary is much smaller than the tracker,

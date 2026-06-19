@@ -1,25 +1,17 @@
 /* =============================================================================
    pt3_player.c -- TS Tracker song picker, universal PT2/PT3 build.
 
-   Replaces the C-only mvac7 PT3 player with Bulba's PTxPlay (universal
-   PT1/PT2/PT3 driver, asm-only). PTxPlay is assembled separately to a flat
-   binary (build/ptxplay.bin), embedded here as a const array, and memcpy'd
-   to its build address ($C000) at startup. We call entry points via
-   inline-asm thunks to fixed addresses defined in build/ptxplay_blob.c.
-
-   PTxPlay format byte at SETUP_ADDR ($C00A):
-     bit 0 = no-loop (set to play once)
-     bit 1 = format: 0 = PT3, 1 = PT2
-     bits 2-3 = channel allocation (0 = ABC stereo, 1 = ACB)
-     bit 7 = (read-only) set when loop point passed
+   Companion to tracker.c (the pattern editor). Both apps share the same
+   PTxPlay engine wrapper: see src/pt_engine.[ch] for the asm thunks
+   (PTx_init / PTx_play / PTx_mute), the AY-mute helper, and the 60Hz->50Hz
+   tempo divider. PTxPlay itself is assembled to a flat binary
+   (build/ptxplay.bin), shipped as a separate CODE block on the same tape,
+   and loaded by the TS2068 tape loader at PTX_ORIGIN_HEX from the Makefile.
 ============================================================================= */
 #include <intrinsic.h>
 
 #include "ay_ts2068.h"
-#include "ptxplay_addrs.h"  /* START_ADDR, SETUP_ADDR, MUTE_ADDR, INIT_ADDR, PLAY_ADDR */
-
-/* PTxPlay is shipped as a separate CODE block on the same tape; the TS2068
-   tape loader puts it at its assembled origin ($C000). No runtime copy. */
+#include "pt_engine.h"  /* PTx_*, silence_channel, pt_play_60to50, PTx_setup */
 
 /* Set the TS2068 border colour (bits 0-2 of port $FE). */
 static void set_border(unsigned char c) __naked __z88dk_fastcall
@@ -29,22 +21,6 @@ __asm
     ld   a,l
     and  #0x07
     out  (#0xFE),a
-    ret
-__endasm;
-}
-
-/* Force AY amplitude register 8/9/10 to zero for a given channel (0..2),
-   silencing it without touching PTxPlay's AYREGS shadow. Called every
-   frame after PTx_play for muted channels. */
-static void silence_channel(unsigned char ch) __naked __z88dk_fastcall
-{
-    (void)ch;
-__asm
-    ld   a,l
-    add  a,#8
-    out  (#0xF5),a
-    xor  a
-    out  (#0xF6),a
     ret
 __endasm;
 }
@@ -206,51 +182,6 @@ struct dir_entry {
 
 static struct dir_entry directory[DIR_MAX];
 static unsigned char    dir_count;
-
-/* ---- PTxPlay thunks (call into the memcpy'd blob at fixed addresses) -------- */
-
-/* PTxPlay's INIT/PLAY/MUTE clobber IX (which z88dk SDCC uses as the C frame
-   pointer). If we just JP into them, the RET returns to our caller with IX
-   garbaged -- subsequent local-variable access reads random memory. Save
-   and restore IX around each call. PTxPlay does not touch IY, which is
-   reserved on the Spectrum for the system-variable pointer.
-
-   Addresses come from build/ptxplay_addrs.h (auto-generated from sjasmplus's
-   .sym output); the C preprocessor substitutes them into the asm before SDCC
-   sees the block. Hardcoding numeric literals here breaks silently the
-   moment PTxPlay's layout shifts (e.g., enabling LoopChecker). */
-static void PTx_init(unsigned int song_addr) __naked __z88dk_fastcall
-{
-    (void)song_addr;
-__asm
-    push ix
-    call INIT_ADDR        ; HL holds song address by fastcall
-    pop  ix
-    ret
-__endasm;
-}
-
-static void PTx_play(void) __naked
-{
-__asm
-    push ix
-    call PLAY_ADDR
-    pop  ix
-    ret
-__endasm;
-}
-
-static void PTx_mute(void) __naked
-{
-__asm
-    push ix
-    call MUTE_ADDR
-    pop  ix
-    ret
-__endasm;
-}
-
-#define PTx_setup (*(volatile unsigned char *)0xC00A)
 
 /* ---- ROM character output (RST $10 = PRINT-A, identical on ZX48/TS2068) ---- */
 
@@ -616,7 +547,18 @@ static unsigned char play_buffer(const char *title, unsigned char fmt)
     unsigned char ret = PLAY_STOP;
 
     set_border(1);
-    PTx_setup = fmt ? 0x02 : 0x00;
+    /* Force PTxPlay's PT3 decode path for every song. PTxPlay's PT2 path
+       (engaged by setting bit 1 here) corrupts our PT2 collection in
+       this build -- pending a separate investigation. PT2 songs happen
+       to decode usably through the PT3 path because the byte-stream
+       command set is shared; the C-side detection still drives the
+       on-screen "(PT2)" / "(PT3)" label so the UI is honest about
+       format even when playback isn't switching engines.
+
+       Also clear bit 7 (loop-passed) so a previous song's looped state
+       doesn't leak into this song's loop detection. */
+    (void)fmt;
+    PTx_setup = 0x00;
     PTx_init((unsigned int)TAPE_SONG_BASE);
 
     cls();
@@ -633,10 +575,7 @@ static unsigned char play_buffer(const char *title, unsigned char fmt)
 
     for (;;) {
         intrinsic_halt();
-        if (++divider == 6) {
-            divider = 0;
-        } else {
-            PTx_play();
+        if (pt_play_60to50(&divider)) {
             if (mute_mask & 0x01) silence_channel(0);
             if (mute_mask & 0x02) silence_channel(1);
             if (mute_mask & 0x04) silence_channel(2);

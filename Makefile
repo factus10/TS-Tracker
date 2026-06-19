@@ -27,8 +27,8 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # tracker's tail; the song slot starts immediately above PTxPlay. Bumping
 # either constant requires re-running the build; the overlap checks below
 # will fail loudly if the C binary outgrows PTX_ORIGIN.
-PTX_ORIGIN_HEX     ?= CC00
-TAPE_SONG_BASE_HEX ?= D700
+PTX_ORIGIN_HEX     ?= D700
+TAPE_SONG_BASE_HEX ?= E200
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
 
@@ -39,6 +39,11 @@ BUILDDIR = build
 SRCDIR   = src
 
 AY_SRCS    = $(SRCDIR)/ay_ts2068.c
+
+# Shared PTxPlay engine (asm thunks + 60->50Hz tempo divider). Both pt3-player
+# and tracker link against this; previously each app had byte-identical local
+# copies.
+ENGINE_SRCS = $(SRCDIR)/pt_engine.c
 
 # Single-song MVP still uses mvac7's C-only PT3 player.
 PT3_SRCS   = $(SRCDIR)/PT3player.c $(AY_SRCS)
@@ -93,7 +98,8 @@ $(BUILDDIR)/pt3-mvp.tap: $(SRCDIR)/pt3_mvp.c $(PT3_SRCS) $(BUILDDIR)/song.c \
 # Transform vendor source -> sjasmplus -> flat .bin -> embedded C blob.
 # The origin is parameterised so we can pack PTxPlay tighter against the
 # C binary's tail, freeing room for the song slot.
-$(BUILDDIR)/PTxPlay.asm: vendor/PTxPlay/PTxPlay.asm tools/build_ptxplay_asm.py | $(BUILDDIR)
+$(BUILDDIR)/PTxPlay.asm: vendor/PTxPlay/PTxPlay.asm tools/build_ptxplay_asm.py \
+                         $(MAKEFILE_LIST) | $(BUILDDIR)
 	python3 tools/build_ptxplay_asm.py $(PTX_ORIGIN_HEX)
 
 $(BUILDDIR)/ptxplay.bin $(BUILDDIR)/ptxplay.sym: $(BUILDDIR)/PTxPlay.asm
@@ -124,11 +130,12 @@ $(BUILDDIR)/songs.stamp: $(MAKEFILE_LIST) tools/build_song_bundle.py | $(BUILDDI
 
 $(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_high.bin: $(BUILDDIR)/songs.stamp ;
 
-$(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) \
+$(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) \
                                   $(BUILDDIR)/ptxplay_addrs.h \
-                                  $(SRCDIR)/ay_ts2068.h | $(BUILDDIR)
+                                  $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h \
+                                  | $(BUILDDIR)
 	$(ZCC) $(CFLAGS) \
-	    $(SRCDIR)/pt3_player.c $(AY_SRCS) \
+	    $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) \
 	    -o $(BUILDDIR)/pt3-player-base \
 	    -create-app
 	mv $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/pt3-player-base.tap.tmp || true
@@ -166,11 +173,12 @@ $(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap
 # main + screens. Builds an independent build/tracker.tap.
 tracker: $(BUILDDIR)/tracker.tap
 
-$(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) \
+$(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) \
                               $(BUILDDIR)/ptxplay_addrs.h \
-                              $(SRCDIR)/ay_ts2068.h | $(BUILDDIR)
+                              $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h \
+                              | $(BUILDDIR)
 	$(ZCC) $(CFLAGS) \
-	    $(SRCDIR)/tracker.c $(AY_SRCS) \
+	    $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) \
 	    -o $(BUILDDIR)/tracker-base \
 	    -create-app
 
