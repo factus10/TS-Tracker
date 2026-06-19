@@ -1910,15 +1910,11 @@ static void show_tape_save_result(unsigned char ok)
             putch(hi < 10 ? '0' + hi : 'A' + hi - 10);
             putch(lo < 10 ? '0' + lo : 'A' + lo - 10);
         }
-        at(7, 0); puts_str("Future saves use the next");
-        at(8, 0); puts_str("version suffix automatically.");
+        at(7, 0); puts_str("Next save bumps the version.");
     } else {
         draw_status(1, "-- Tape save failed --");
-        at(4, 0); puts_str("SA-BYTES returned an error.");
-        at(6, 0); puts_str("Possible causes:");
-        at(7, 0); puts_str(" - tape not in record mode");
-        at(8, 0); puts_str(" - BREAK pressed mid-write");
-        at(9, 0); puts_str(" - emulator tape full");
+        at(4, 0); puts_str("Tape not in record mode,");
+        at(5, 0); puts_str("or BREAK pressed.");
     }
     at(20, 0); puts_str("Press any key to return.");
 }
@@ -1931,12 +1927,8 @@ static void show_rebuild_error(void)
     cls();
     draw_banner();
     draw_status(1, "-- Song too big --");
-    at(4, 0); puts_str("The song no longer fits the");
-    at(5, 0); puts_str("tape slot (max ");
-    put_dec5_right(SONG_BUDGET);
-    puts_str(" bytes).");
-    at(7, 0); puts_str("Remove some notes or");
-    at(8, 0); puts_str("patterns and try again.");
+    at(4, 0); puts_str("Won't fit the tape slot.");
+    at(5, 0); puts_str("Remove notes or patterns.");
     at(20, 0); puts_str("Press any key to return.");
 }
 
@@ -2069,9 +2061,10 @@ static void show_help_page(void)
     at(12, 2);  puts_str("I=insert row  CAPS+0=del");
     at(13, 2);  puts_str("9 = clear channel column");
 
-    at(15, 0);  puts_str("Vol / sample (U cycles):");
-    at(16, 2);  puts_str("U: Oct/Vol/Smp/Orn mode");
-    at(17, 2);  puts_str("0..F sets vol/samp/orn");
+    at(14, 0);  puts_str("Instruments:");
+    at(15, 2);  puts_str("U: Oct/Vol/Smp/Orn mode");
+    at(16, 2);  puts_str("0..F sets vol/samp/orn");
+    at(17, 2);  puts_str("E=sample  T=ornament edit");
 
     at(18, 0);  puts_str("Save / play:");
     at(19, 2);  puts_str("W=save tape (auto-rebuild)");
@@ -2095,8 +2088,17 @@ static void show_help_page(void)
    editing: every byte is editable in hex (so any field is reachable) with
    decoded Vol/Tone shown; SPACE walks the field cursor, 0..F edits, O/P pick
    the sample, editing the `len` field resizes/creates. */
-static unsigned char cur_sample_edit = 1;     /* sample shown by the editor */
+static unsigned char cur_sample_edit = 1;     /* sample shown by the editor (E) */
+static unsigned char cur_orn_edit    = 1;     /* ornament shown by the editor (T) */
 #define SE_VIS_LINES 13                        /* lines shown/editable at once */
+
+/* The editor handles both instrument kinds, which share the same on-tape
+   shape ([loop,length] + lines): kind 0 = sample (4-byte lines, pointer table
+   at song[105+N*2], 32 slots, decoded Vol/Tone); kind 1 = ornament (1-byte
+   signed-offset lines, table at song[169+N*2], 16 slots). */
+#define SE_TBL(kind)  ((kind) ? 169u : 105u)
+#define SE_LSZ(kind)  ((kind) ? 1u : 4u)
+#define SE_NSL(kind)  ((kind) ? 16u : 32u)
 
 static void se_hex2(unsigned char v, unsigned char hl)
 {
@@ -2105,128 +2107,145 @@ static void se_hex2(unsigned char v, unsigned char hl)
     if (hl) set_inverse(0);
 }
 
-/* Field cursor `fc`: 0 = loop, 1 = length, 2+ = line (fc-2)/4 byte (fc-2)%4. */
-static void se_draw(unsigned char sel, unsigned char fc)
+/* Field cursor `fc`: 0 = loop, 1 = length, 2+ = line (fc-2)/lsz byte (fc-2)%lsz. */
+static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
 {
     const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
-    unsigned int  off  = song[105 + sel * 2] | ((unsigned int)song[106 + sel * 2] << 8);
+    unsigned int  tbl = SE_TBL(kind);
+    unsigned char lsz = (unsigned char)SE_LSZ(kind);
+    unsigned int  off  = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
     unsigned char loop = song[off];
     unsigned char len  = song[off + 1];
     unsigned char i;
 
     cls();
     draw_banner();
-    draw_status(1, "-- Sample editor --");
-    at(3, 0); puts_str("Sample "); put_hex2(sel);
+    draw_status(1, kind ? "-- Ornament editor --" : "-- Sample editor --");
+    at(3, 0); puts_str(kind ? "Ornament " : "Sample ");
+              put_hex2(sel);
               puts_str("  loop "); se_hex2(loop, fc == 0);
               puts_str(" len ");   se_hex2(len,  fc == 1);
-    at(5, 0); puts_str("LN b0 b1 b2 b3  Vl Tone");
+    at(5, 0); puts_str(kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone");
     for (i = 0; i < len && i < SE_VIS_LINES; i++) {
-        unsigned int  lo = off + 2 + (unsigned int)i * 4;
-        unsigned char b1 = song[lo + 1];
-        signed int    tone = (signed int)(song[lo + 2] | ((unsigned int)song[lo + 3] << 8));
-        unsigned char fb = (unsigned char)(2 + i * 4);   /* field of this line's b0 */
+        unsigned int  lo = off + 2 + (unsigned int)i * lsz;
+        unsigned char fb = (unsigned char)(2 + i * lsz);
         at(6 + i, 0);
         put_hex2(i); putch(' ');
-        se_hex2(song[lo],     fc == fb);     putch(' ');
-        se_hex2(b1,           fc == fb + 1); putch(' ');
-        se_hex2(song[lo + 2], fc == fb + 2); putch(' ');
-        se_hex2(song[lo + 3], fc == fb + 3); puts_str("  ");
-        put_hex1(b1 & 0x0F); putch(' ');
-        if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
-        put_dec5_right((unsigned int)tone);
+        if (kind) {
+            signed int v = (signed char)song[lo];
+            se_hex2(song[lo], fc == fb); puts_str("   ");
+            if (v < 0) { putch('-'); v = -v; } else putch('+');
+            put_dec5_right((unsigned int)v);
+        } else {
+            unsigned char b1 = song[lo + 1];
+            signed int    tone = (signed int)(song[lo + 2] | ((unsigned int)song[lo + 3] << 8));
+            se_hex2(song[lo],     fc == fb);     putch(' ');
+            se_hex2(b1,           fc == fb + 1); putch(' ');
+            se_hex2(song[lo + 2], fc == fb + 2); putch(' ');
+            se_hex2(song[lo + 3], fc == fb + 3); puts_str("  ");
+            put_hex1(b1 & 0x0F); putch(' ');
+            if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
+            put_dec5_right((unsigned int)tone);
+        }
     }
     at(20, 0); puts_str("SPACE=field  0-F=edit");
-    at(21, 0); puts_str("O/P=sample  len:resize  Q=back");
+    at(21, 0); puts_str("O/P=sel  len:resize  Q=back");
 }
 
-/* Resize (and, implicitly, fork to a private block) sample `sel` to `newlen`
-   lines. The new block is appended at base_pat_off -- the current pattern-table
-   offset -- which grows the instrument region; rebuild_song then re-lays the
-   pattern table + data after it. Only this sample's pointer and base_pat_off
-   change, so no other instrument pointer needs fixing up. Old block bytes are
-   left dead (bounded; same tolerance as pattern rebuild). Returns 1 on success,
-   0 if it wouldn't fit (state restored). */
-static unsigned char sample_resize(unsigned char sel, unsigned char newlen)
+/* Resize (and, implicitly, fork to a private block) instrument `sel` of `kind`
+   to `newlen` lines. The new block is appended at base_pat_off -- the current
+   pattern-table offset -- growing the instrument region; rebuild_song then
+   re-lays the pattern table + data after it. Only this instrument's pointer and
+   base_pat_off change, so no other pointer needs fixing up. Old block bytes are
+   left dead (bounded). Returns 1 on success, 0 if it wouldn't fit (restored). */
+static unsigned char instr_resize(unsigned char kind, unsigned char sel, unsigned char newlen)
 {
     unsigned char *song = (unsigned char *)TAPE_SONG_BASE;
-    unsigned int   oldoff = song[105 + sel * 2] | ((unsigned int)song[106 + sel * 2] << 8);
+    unsigned int   tbl = SE_TBL(kind);
+    unsigned char  lsz = (unsigned char)SE_LSZ(kind);
+    unsigned int   oldoff = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
     unsigned char  oldlen = song[oldoff + 1];
     unsigned char  oldloop = song[oldoff];
     unsigned int   newoff = base_pat_off;
     unsigned int   blocksz;
     unsigned int   saved_base = base_pat_off;
-    unsigned char  saved_pl = song[105 + sel * 2], saved_ph = song[106 + sel * 2];
+    unsigned char  saved_pl = song[tbl + sel * 2], saved_ph = song[tbl + sel * 2 + 1];
     unsigned char  i, j;
 
     if (newlen < 1) newlen = 1;
-    blocksz = 2 + (unsigned int)newlen * 4;
-    /* Leave headroom for the pattern region rebuild_song re-emits after us. */
+    blocksz = 2 + (unsigned int)newlen * lsz;
     if (newoff + blocksz + 16 > SONG_BUDGET) return 0;
 
     song[newoff]     = (oldloop < newlen) ? oldloop : 0;
     song[newoff + 1] = newlen;
     for (i = 0; i < newlen; i++)
-        for (j = 0; j < 4; j++)
-            song[newoff + 2 + (unsigned int)i * 4 + j] =
-                (i < oldlen) ? song[oldoff + 2 + (unsigned int)i * 4 + j] : 0;
+        for (j = 0; j < lsz; j++)
+            song[newoff + 2 + (unsigned int)i * lsz + j] =
+                (i < oldlen) ? song[oldoff + 2 + (unsigned int)i * lsz + j] : 0;
 
-    song[105 + sel * 2] = (unsigned char)(newoff & 0xFF);
-    song[106 + sel * 2] = (unsigned char)(newoff >> 8);
+    song[tbl + sel * 2]     = (unsigned char)(newoff & 0xFF);
+    song[tbl + sel * 2 + 1] = (unsigned char)(newoff >> 8);
     base_pat_off = newoff + blocksz;
 
     if (!rebuild_song()) {                       /* over budget -> undo */
         base_pat_off = saved_base;
-        song[105 + sel * 2] = saved_pl;
-        song[106 + sel * 2] = saved_ph;
+        song[tbl + sel * 2]     = saved_pl;
+        song[tbl + sel * 2 + 1] = saved_ph;
         rebuild_song();
         return 0;
     }
     return 1;
 }
 
-/* If sample `sel`'s block is shared with another slot (e.g. a new song where
-   every slot points at the one default), fork it to a private copy first, so
-   an in-place byte edit only changes this instrument. */
-static void sample_ensure_private(unsigned char sel)
+/* If instrument `sel`'s block is shared with another slot, fork it to a
+   private copy first so an in-place byte edit only changes this one. */
+static void instr_ensure_private(unsigned char kind, unsigned char sel)
 {
     const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
-    unsigned int p = song[105 + sel * 2] | ((unsigned int)song[106 + sel * 2] << 8);
-    unsigned char j;
-    for (j = 0; j < 32; j++) {
+    unsigned int  tbl = SE_TBL(kind);
+    unsigned char n = (unsigned char)SE_NSL(kind), j;
+    unsigned int  p = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
+    for (j = 0; j < n; j++) {
         if (j == sel) continue;
-        if ((song[105 + j * 2] | ((unsigned int)song[106 + j * 2] << 8)) == p) {
-            sample_resize(sel, song[p + 1]);     /* fork at same length */
+        if ((song[tbl + j * 2] | ((unsigned int)song[tbl + j * 2 + 1] << 8)) == p) {
+            instr_resize(kind, sel, song[p + 1]);
             return;
         }
     }
 }
 
-static void show_sample_editor(void)
+static void show_instr_editor(unsigned char kind)
 {
-    unsigned char sel = cur_sample_edit;
+    unsigned int  tbl = SE_TBL(kind);
+    unsigned char lsz = (unsigned char)SE_LSZ(kind);
+    unsigned char maxsel = (unsigned char)(SE_NSL(kind) - 1);
+    unsigned char sel = kind ? cur_orn_edit : cur_sample_edit;
     unsigned char fc  = 0;
 
+    if (sel > maxsel) sel = 1;
     for (;;) {
         const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
         unsigned int  off;
         unsigned char len, vis, nf;
 
-        se_draw(sel, fc);
+        se_draw(kind, sel, fc);
         while (key_space() || key_O() || key_P() || key_Q() || key_break()
             || read_hex_key() >= 0) intrinsic_halt();
 
         for (;;) {
             signed char h;
             intrinsic_halt();
-            off = song[105 + sel * 2] | ((unsigned int)song[106 + sel * 2] << 8);
+            off = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
             len = song[off + 1];
             vis = (len < SE_VIS_LINES) ? len : SE_VIS_LINES;
-            nf  = (unsigned char)(2 + vis * 4);   /* navigable field count */
+            nf  = (unsigned char)(2 + vis * lsz);
 
-            if (key_Q() || key_break()) { cur_sample_edit = sel; return; }
-            if (key_O() && sel > 0)  { sel--; fc = 0; while (key_O()) intrinsic_halt(); break; }
-            if (key_P() && sel < 31) { sel++; fc = 0; while (key_P()) intrinsic_halt(); break; }
+            if (key_Q() || key_break()) {
+                if (kind) cur_orn_edit = sel; else cur_sample_edit = sel;
+                return;
+            }
+            if (key_O() && sel > 0)      { sel--; fc = 0; while (key_O()) intrinsic_halt(); break; }
+            if (key_P() && sel < maxsel) { sel++; fc = 0; while (key_P()) intrinsic_halt(); break; }
             if (key_space()) {
                 fc = (unsigned char)((fc + 1) % nf);
                 while (key_space()) intrinsic_halt();
@@ -2235,15 +2254,14 @@ static void show_sample_editor(void)
             h = read_hex_key();
             if (h >= 0) {
                 if (fc == 1) {
-                    /* length field: resize / create (rolling 2-hex value) */
-                    sample_resize(sel, (unsigned char)(((len << 4) | (unsigned char)h)));
+                    instr_resize(kind, sel, (unsigned char)(((len << 4) | (unsigned char)h)));
                 } else {
                     unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
                     unsigned int addr;
-                    sample_ensure_private(sel);          /* fork if shared */
-                    off = w[105 + sel * 2] | ((unsigned int)w[106 + sel * 2] << 8);
-                    if (fc == 0) addr = off;             /* loop */
-                    else addr = off + 2 + (unsigned int)((fc - 2) / 4) * 4 + ((fc - 2) % 4);
+                    instr_ensure_private(kind, sel);
+                    off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
+                    if (fc == 0) addr = off;
+                    else addr = off + 2 + (unsigned int)((fc - 2) / lsz) * lsz + ((fc - 2) % lsz);
                     w[addr] = (unsigned char)((w[addr] << 4) | (unsigned char)h);
                 }
                 while (read_hex_key() >= 0) intrinsic_halt();
@@ -2290,7 +2308,7 @@ static void show_pattern(unsigned char idx)
 
     while (nav_up() || nav_down() || nav_left() || nav_right()
         || key_O() || key_P() || key_Q() || key_enter() || key_R()
-        || key_K() || key_E() || key_W() || key_U() || key_I() || key_delete())
+        || key_K() || key_E() || key_T() || key_W() || key_U() || key_I() || key_delete())
         intrinsic_halt();
 
     for (;;) {
@@ -2509,7 +2527,12 @@ static void show_pattern(unsigned char idx)
         }
         else if (key_E()) {
             while (key_E()) intrinsic_halt();
-            show_sample_editor();
+            show_instr_editor(0);                /* sample editor */
+            repaint_pattern_view(idx, pat, num_pat, top, cursor, cursor_ch, octave);
+        }
+        else if (key_T()) {
+            while (key_T()) intrinsic_halt();
+            show_instr_editor(1);                /* ornament editor */
             repaint_pattern_view(idx, pat, num_pat, top, cursor, cursor_ch, octave);
         }
         else if (key_enter()) {
