@@ -312,9 +312,13 @@ static unsigned char key_L(void)     { return read_row(0xBF) & 0x02; }
 /* Row $FD = A S D F G ; bit 0 = A, bit 1 = S. */
 static unsigned char key_A(void)     { return read_row(0xFD) & 0x01; }
 static unsigned char key_S(void)     { return read_row(0xFD) & 0x02; }
-/* Row $FB = Q W E R T ; bit 0 = Q, bit 3 = R. */
+/* Row $FB = Q W E R T ; bit 0 = Q, bit 1 = W, bit 3 = R. */
 static unsigned char key_Q(void)     { return read_row(0xFB) & 0x01; }
 static unsigned char key_R(void)     { return read_row(0xFB) & 0x08; }
+/* W = save to tape, K = help. Deliberately OFF the piano: S (C#) and H (G#)
+   are note keys in the editor, so Save/Help can't sit on them. */
+static unsigned char key_W(void)     { return read_row(0xFB) & 0x02; }
+static unsigned char key_K(void)     { return read_row(0xBF) & 0x04; }
 /* TS2068 BREAK = CAPS-SHIFT (row $FE bit 0) + SPACE (row $7F bit 0). */
 static unsigned char key_break(void) {
     return (read_row(0xFE) & 0x01) && (read_row(0x7F) & 0x01);
@@ -1355,7 +1359,7 @@ static void draw_pattern_frame(unsigned char idx, unsigned char num_pat)
               puts_str(" Row    Ch:  Oct: ");/* row XX, ch, oct placeholders */
     at(VIEW_TOP_ROW - 1, 0);
     puts_str("RR  ChA s   ChB s   ChC s");
-    at(21, 0); puts_str("H=help full keys  S=save A=play");
+    at(21, 0); puts_str("K=help all keys  W=save A=play");
 }
 
 /* Two-hex pattern number at col 4. Only changes when the user steps O/P. */
@@ -1992,7 +1996,7 @@ static unsigned int prompt_jump_pattern(void)
 static void draw_pattern_hints(void)
 {
     draw_free_mem();                                       /* row 20 */
-    at(21, 0); puts_str("H=help full keys  S=save A=play");
+    at(21, 0); puts_str("K=help all keys  W=save A=play");
 }
 
 /* Modal Y/N input loop for destructive ops. Caller has already painted a
@@ -2051,7 +2055,7 @@ static void show_help_page(void)
     at(17, 2);  puts_str("0..F = set cell volume");
 
     at(18, 0);  puts_str("Save / play:");
-    at(19, 2);  puts_str("S=save tape (auto-rebuild)");
+    at(19, 2);  puts_str("W=save tape (auto-rebuild)");
     at(20, 2);  puts_str("A=play song  L=loop pat");
 
     at(21, 0); puts_str("  Edits auto-save. Any key=back.");
@@ -2098,7 +2102,7 @@ static void show_pattern(unsigned char idx)
 
     while (nav_up() || nav_down() || nav_left() || nav_right()
         || key_O() || key_P() || key_Q() || key_enter() || key_R()
-        || key_H() || key_U() || key_I() || key_delete())
+        || key_K() || key_W() || key_U() || key_I() || key_delete())
         intrinsic_halt();
 
     for (;;) {
@@ -2244,11 +2248,11 @@ static void show_pattern(unsigned char idx)
                 repaint_pattern_view(idx, pat, num_pat, top, cursor, cursor_ch, octave);
             }
         }
-        else if (key_S()) {
-            /* S = regenerate the PT3 stream from the model, then write it to
+        else if (key_W()) {
+            /* W = regenerate the PT3 stream from the model, then write it to
                tape as a fresh CODE block (SA-BYTES). Prompts for a filename;
-               Q cancels. */
-            while (key_S()) intrinsic_halt();
+               Q cancels. (W not S: S is the C# piano key in note mode.) */
+            while (key_W()) intrinsic_halt();
             if (!rebuild_song()) {
                 show_rebuild_error();
                 while (key_dismiss())  intrinsic_halt();
@@ -2304,8 +2308,8 @@ static void show_pattern(unsigned char idx)
                 cursor = 0;
             }
         }
-        else if (key_H()) {
-            while (key_H()) intrinsic_halt();
+        else if (key_K()) {
+            while (key_K()) intrinsic_halt();
             show_help_page();
             repaint_pattern_view(idx, pat, num_pat, top, cursor, cursor_ch, octave);
         }

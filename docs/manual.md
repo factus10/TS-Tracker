@@ -32,7 +32,7 @@ editing is what you will hear on playback.
 
 If you are the sort of person who reads the whole manual before touching the
 keyboard, good for you --- but you needn't. TS Tracker leads you by the hand
-with on-screen menus and a built-in help page (press **H** any time you are
+with on-screen menus and a built-in help page (press **K** any time you are
 editing). The rest of this booklet fills in the details.
 
 # Loading the program
@@ -165,19 +165,20 @@ TS Tracker lays a piano keyboard across two rows of keys. The bottom row
 gives the natural notes; the row above gives the sharps:
 
 ```
-  sharps:   D   G       J
-  notes:  Z X C V B N M
-          C D E F G A B
+  sharps:  S  D     G  H  J
+  notes:  Z  X  C  V  B  N  M
+          C  D  E  F  G  A  B
 ```
 
 | Key | Note | Key | Note |
 |-----|------|-----|------|
-| `Z` | C | `V` | F |
-| `X` | D | `B` | G |
-| `C` | E | `N` | A |
-|     |   | `M` | B |
-| `D` | D# | `J` | A# |
-| `G` | F# |     |    |
+| `Z` | C  | `S` | C# |
+| `X` | D  | `D` | D# |
+| `C` | E  | `G` | F# |
+| `V` | F  | `H` | G# |
+| `B` | G  | `J` | A# |
+| `N` | A  |     |    |
+| `M` | B  |     |    |
 
 Press a note key to place that note in the cell under the cursor. The note
 sounds briefly through the AY so you can hear what you picked.
@@ -185,9 +186,6 @@ sounds briefly through the AY so you can hear what you picked.
 The note's **octave** is set by the number keys **1** to **8**. Choose an
 octave first, then play notes; pressing a number while the cursor sits on an
 existing note re-tunes that note to the new octave.
-
-> Two sharps, **C#** and **G#**, share their keys with the Save (`S`) and
-> Help (`H`) commands, so they cannot be typed directly in this version.
 
 Other note-entry keys:
 
@@ -221,7 +219,7 @@ version.
 
 # Saving to tape
 
-Press **S** to save. TS Tracker first rebuilds your song into a proper PT3
+Press **W** to save. TS Tracker first rebuilds your song into a proper PT3
 file, then asks for a name:
 
 ```
@@ -251,7 +249,7 @@ the editor.
 
 # The help screen
 
-Press **H** at any time in the editor for a full one-screen key reference.
+Press **K** at any time in the editor for a full one-screen key reference.
 Press any key to return exactly where you left off.
 
 # Quick key reference
@@ -273,7 +271,7 @@ Press any key to return exactly where you left off.
 | `A` | Play song | `I` | Insert row |
 | `L` | Loop pattern | CAPS+0 | Delete row |
 | `U` | Volume mode | `9` | Clear channel |
-| `S` | Save to tape | `H` | Help |
+| `W` | Save to tape | `K` | Help |
 | `Q` | Back to song info | | |
 
 # Limits and notes
