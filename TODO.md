@@ -18,8 +18,10 @@ The editor is feature-complete for single-song authoring and editing:
 - **In-editor playback** — `A` play song, `L` loop current pattern.
 - **Per-cell sample** — `U` cycles Oct/Vol/**Smp**; Smp mode sets a note's
   instrument number.
-- **Instrument editor** — `E` opens a full-fidelity sample editor: edit every
-  byte of every line, create/resize samples (in-slot append + rebuild).
+- **Instrument editors** — `E` sample / `T` ornament: full-fidelity edit of
+  every byte/line, create/resize (in-slot append + rebuild). Per-cell sample
+  AND ornament assignment via `U` (Oct/Vol/Smp/Orn); ornaments preserved
+  (3-byte cell kept via bitfield, so MAX_PATTERNS still 14).
 - **Help** — `K` shows a full key reference. (Save=`W`, Help=`K`; `S`/`H` are
   the C#/G# piano keys.)
 
@@ -35,20 +37,17 @@ All committed to `main`.
 - **`rebuild_song` assumes standard PT3 layout** (pattern table + data last,
   after instrument defs). Non-standard songs that interleave them would be
   corrupted on rebuild — not guarded. See `docs/architecture.md`.
-- **Ornaments are dropped** (cell_t has no ornament field; the sample editor
-  covers samples, not the separate ornament tables). Adding per-cell ornament
-  costs ~4 patterns of capacity. See Phase C in the plan.
 - **`MAX_PATTERNS = 14`** — sized to the `$6000` gap and roughly matched to the
   ~5.5 KB save budget (`SONG_BUDGET = $FB00−$E500`, after PTX_ORIGIN was raised
   to `$DAC0` to fund the editor). Bigger songs need memory-map surgery.
-- **Sample editor v1 limits** — ≤13 lines shown/editable per sample; a
-  resized-away old block is left as dead bytes (bounded).
+- **Binary is essentially full** — ~170 B headroom below PTxPlay after the
+  ornament editor. Future code needs a reclamation pass or another PTX bump.
+- **Instrument editor limits** — ≤13 lines shown/editable; a resized-away old
+  block is left as dead bytes (bounded).
 - **PT2 songs are view/play-only** — no PT2 decoder; the editor refuses them.
 
 ## Remaining backlog (committed scope, unbuilt)
 
-- [ ] **Ornament editing + per-cell ornament** (Phase C) — needs a 4th cell_t
-      byte (MAX_PATTERNS tradeoff) + an ornament editor + encode emission.
 - [ ] **Octave-shift current cell** up/down as a separate op from setting the
       base octave (today one key does both).
 - [ ] **Live playback while editing** — PTxPlay running against the edit buffer;
@@ -91,8 +90,9 @@ Coloured volume bars from the player are worth reusing for live-playback preview
       no manual commit; empty-row-0 emits a REST instead of refusing
 - [x] **Denser grid (16 rows) + beat-line banding**
 - [x] **Help page** (`K`, full key reference); Save/Help moved off the piano
-- [x] **Per-cell sample assignment** (`U` Smp mode)
-- [x] **Full-fidelity instrument (sample) editor** (`E`): edit / create / resize
+- [x] **Per-cell sample + ornament assignment** (`U`: Oct/Vol/Smp/Orn)
+- [x] **Full-fidelity instrument editors** — `E` sample / `T` ornament: edit /
+      create / resize; ornaments preserved (bitfield keeps MAX_PATTERNS=14)
 - [x] Shared `pt_engine` module; memory reclamation (~1.6 KB freed); PTX_ORIGIN
       raised `$D700→$DAC0` to fund the editor
 - [x] Free-memory display; smart incremental redraw

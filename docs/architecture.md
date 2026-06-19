@@ -60,10 +60,13 @@ at row 0 and a skip to the first real event. On reload row 0 reads as a rest
 rather than empty; functionally identical (silent start) since this engine
 re-inits each channel per pattern (no cross-pattern note hold).
 
-### Ornaments (known loss)
-`cell_t` carries no ornament, so ornaments are dropped on decode and not
-re-emitted on rebuild — a pre-existing limitation kept to hold the cell at 3
-bytes. Adding a 4th byte costs ~4 patterns of capacity (see memory map).
+### Ornaments
+`cell_t` carries `ornament` as a 4-bit bitfield packed into the spare nibble of
+the volume byte, so the cell stays 3 bytes (a compile-time `sizeof==3` assert
+guards it) and MAX_PATTERNS stays 14. The decoder captures ornament into the
+cell; `encode_channel` emits the `0x40+orn` command. So ornaments round-trip,
+and `U`'s Orn mode assigns them per cell. (This avoided the feared 14→10
+pattern cost.)
 
 ## Memory map (TS2068, the binding constraint)
 
@@ -87,24 +90,28 @@ still holds the largest bundled song (5464 B), so the player is unaffected.
 `ptxplay_addrs.h` regenerates from the origin, so only the two Makefile
 constants move.
 
-## Instrument (sample) editor
+## Instrument editor (samples + ornaments)
 
-`E` from the pattern view opens `show_sample_editor` (src/tracker.c). Samples
-are edited **in place in the song slot** (no RAM model — see memory map):
-- **Edit:** every byte of every sample line is editable in hex (full PT3
-  fidelity), with decoded Vol (`b1&0x0F`) and signed Tone (`b2|b3<<8`) shown.
-  SPACE walks a field cursor; `0–F` rolls a 2-hex value into the byte.
-- **Create / resize:** editing the `len` field calls `sample_resize`, which
-  **appends** the new block at `base_pat_off`, repoints just this sample,
+`show_instr_editor(kind)` (src/tracker.c) edits both instrument kinds — `E`
+opens it for **samples** (kind 0), `T` for **ornaments** (kind 1). They share
+the on-tape shape (`[loop,length]` + lines); the editor parameterises on
+`SE_TBL`/`SE_LSZ`/`SE_NSL` (sample = 4-byte lines, table @105, 32 slots;
+ornament = 1-byte signed-offset lines, table @169, 16 slots). Edited **in place
+in the song slot** (no RAM model — see memory map):
+- **Edit:** every byte is editable in hex (full PT3 fidelity), with decoded
+  Vol (`b1&0x0F`)/Tone (`b2|b3<<8`) for samples, signed note-offset for
+  ornaments. SPACE walks a field cursor; `0–F` rolls a 2-hex value into the byte.
+- **Create / resize:** editing the `len` field calls `instr_resize`, which
+  **appends** the new block at `base_pat_off`, repoints just this instrument,
   bumps `base_pat_off`, and lets `rebuild_song` re-lay the pattern region after
-  it. Only this sample's pointer + `base_pat_off` change — no general pointer
-  fix-up. Over-budget resizes roll back. `sample_ensure_private` forks a block
-  shared by multiple slots on first in-place edit, so a new song's instruments
-  become individually editable. v1 limits: ≤13 lines shown/editable per sample;
+  it. Only this instrument's pointer + `base_pat_off` change — no general
+  pointer fix-up. Over-budget resizes roll back. `instr_ensure_private` forks a
+  block shared by multiple slots on first in-place edit, so a new song's
+  instruments become individually editable. Limits: ≤13 lines shown/editable;
   resized-away old blocks are left as dead bytes (bounded).
-- Per-cell sample assignment: `U` cycles Oct/Vol/**Smp**; in Smp mode `0–F`
-  rolls a 2-hex sample number (00..1F) into the cursor cell (`encode_channel`
-  already serialised `cell->sample`).
+- Per-cell assignment: `U` cycles Oct/Vol/**Smp**/**Orn**; Smp sets the cell's
+  sample (2-hex, 00..1F), Orn its ornament (0..F). The encoder serialises both
+  (`0xD0+smp`/ESAM and `0x40+orn`).
 
 Consequences:
 - The decoded model lives in the `$6000` gap precisely because the binary has no
