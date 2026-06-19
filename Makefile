@@ -27,8 +27,13 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # tracker's tail; the song slot starts immediately above PTxPlay. Bumping
 # either constant requires re-running the build; the overlap checks below
 # will fail loudly if the C binary outgrows PTX_ORIGIN.
-PTX_ORIGIN_HEX     ?= D700
-TAPE_SONG_BASE_HEX ?= E200
+#
+# PTX_ORIGIN was raised D700->DAC0 to give the tracker's instrument editor
+# more code room; the song slot shrank 6.4KB->5.5KB to fund it. The slot
+# still holds the largest bundled song (song_04, 5464 B), so the player is
+# unaffected. PTxPlay.bin is 2622 B; the DAC0->E500 gap (2624 B) just fits it.
+PTX_ORIGIN_HEX     ?= DAC0
+TAPE_SONG_BASE_HEX ?= E500
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
 
