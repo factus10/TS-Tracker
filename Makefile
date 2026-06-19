@@ -28,16 +28,20 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # either constant requires re-running the build; the overlap checks below
 # will fail loudly if the C binary outgrows PTX_ORIGIN.
 #
-# PTX_ORIGIN was raised D700->DAC0 to give the tracker's instrument editor
-# more code room; the song slot shrank 6.4KB->5.5KB to fund it. The slot
-# still holds the largest bundled song (song_04, 5464 B), so the player is
-# unaffected. PTxPlay.bin is 2622 B; the DAC0->E500 gap (2624 B) just fits it.
-# The tracker runs at DAC0/E500 (its editor needs the code room). The player
-# is decoupled and keeps the original D700/E200 map so it isn't penalised with
-# a smaller song slot it doesn't need -- each app builds its own PTxPlay at its
-# own origin (see the per-app pipelines below).
-PTX_ORIGIN_HEX     ?= DAC0
-TAPE_SONG_BASE_HEX ?= E500
+# The tracker map was lowered DAC0/E500 -> CC00/D4F0 by the Phase 1 RAM
+# optimisations (see docs/optimization-review.md): the CRT diet (TRACKER_CRT,
+# below) trims ~3.5 KB of unused stdio/driver code and a PT3-only PTxPlay
+# (build_ptxplay_asm.py ... 1) trims ~347 B. The C image now ends ~$CBAF, so
+# PTX_ORIGIN drops to CC00 (~80 B guard) and -- with the 2275 B PT3-only PTxPlay
+# ending ~$D4E3 -- TAPE_SONG_BASE drops to D4F0. That grows the song slot from
+# 5632 B to ~9744 B (SONG_BUDGET = $FB00 - $D4F0), ~4.3 KB of headroom over the
+# largest bundled song (5464 B). NB the image size is mildly sensitive to
+# PTX_ORIGIN (its address feeds ptxplay_addrs.h, which is compiled in), so the
+# guard is generous; the overlap check below is the backstop. The player is
+# decoupled and keeps the original D700/E200 map + full PT1/PT2/PT3 PTxPlay --
+# each app builds its own PTxPlay at its own origin (see the per-app pipelines).
+PTX_ORIGIN_HEX     ?= CC00
+TAPE_SONG_BASE_HEX ?= D4F0
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
 PLAYER_PTX_ORIGIN_HEX ?= D700
@@ -46,6 +50,19 @@ PLAYER_PTX_ORIGIN_DEC := $(shell printf '%d' 0x$(PLAYER_PTX_ORIGIN_HEX))
 
 # TAPE_SONG_BASE is set per-app (player vs tracker), not here, since they differ.
 CFLAGS   = $(TARGET) $(COMPILER) $(CLIB) $(OPT) -DTS2068 -Isrc -Ibuild
+
+# Tracker-only CRT diet. The tracker uses NO C stdio -- it prints via a raw
+# RST $10 thunk (putch) and reads keys via IN (read_row) -- so the default
+# crt0's stdin/stdout/stderr terminal drivers, the stdio/malloc heaps and the
+# exit/atexit machinery are all dead weight. Dropping them removes ~3.5 KB from
+# the image, which (via the overlap-guarded map below) drops PTX_ORIGIN and
+# TAPE_SONG_BASE ~1:1 and grows the song slot. crt/crt_driver_instantiation.asm.m4
+# is the empty user driver file that CRT_INCLUDE_DRIVER_INSTANTIATION=1 needs.
+# NOTE: with no drivers linked, any C stdio call (printf/putchar/...) would
+# crash -- the tracker must keep printing only via putch.
+TRACKER_CRT = -pragma-define:CRT_INCLUDE_DRIVER_INSTANTIATION=1 -Cm-Icrt \
+              -pragma-define:CLIB_STDIO_HEAP_SIZE=0 -pragma-define:CLIB_MALLOC_HEAP_SIZE=0 \
+              -pragma-define:CRT_ENABLE_CLOSE=0 -pragma-define:CLIB_EXIT_STACK_SIZE=0
 
 BUILDDIR = build
 SRCDIR   = src
@@ -114,9 +131,12 @@ $(BUILDDIR)/pt3-mvp.tap: $(SRCDIR)/pt3_mvp.c $(PT3_SRCS) $(BUILDDIR)/song.c \
 # Transform vendor source -> sjasmplus -> flat .bin -> embedded C blob.
 # The origin is parameterised so we can pack PTxPlay tighter against the
 # C binary's tail, freeing room for the song slot.
+# The tracker's copy is built PT3-only (arg 3 = 1): it never plays PT2, so the
+# PT2/PT1 init + pattern decoder are compiled out and LoopChecker is turned off,
+# shrinking it 2622 -> 2275 B. The player's copy (below) stays full PT1/PT2/PT3.
 $(BUILDDIR)/PTxPlay.asm: vendor/PTxPlay/PTxPlay.asm tools/build_ptxplay_asm.py \
                          $(MAKEFILE_LIST) | $(BUILDDIR)
-	python3 tools/build_ptxplay_asm.py $(PTX_ORIGIN_HEX)
+	python3 tools/build_ptxplay_asm.py $(PTX_ORIGIN_HEX) $(BUILDDIR)/PTxPlay.asm 1
 
 $(BUILDDIR)/ptxplay.bin $(BUILDDIR)/ptxplay.sym: $(BUILDDIR)/PTxPlay.asm
 	cd $(BUILDDIR) && sjasmplus PTxPlay.asm --raw=ptxplay.bin --sym=ptxplay.sym
@@ -207,7 +227,7 @@ $(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) $(IO
                               $(BUILDDIR)/ptxplay_addrs.h \
                               $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h $(SRCDIR)/ts_io.h \
                               | $(BUILDDIR)
-	$(ZCC) $(CFLAGS) -DTAPE_SONG_BASE=0x$(TAPE_SONG_BASE_HEX) \
+	$(ZCC) $(CFLAGS) $(TRACKER_CRT) -DTAPE_SONG_BASE=0x$(TAPE_SONG_BASE_HEX) \
 	    $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) $(IO_SRCS) \
 	    -o $(BUILDDIR)/tracker-base \
 	    -create-app

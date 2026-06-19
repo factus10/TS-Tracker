@@ -132,8 +132,6 @@ __endasm;
 #endif
 
 static unsigned char tape_header[17];
-static unsigned char tape_song_loaded;
-static unsigned char tape_song_fmt;
 
 /* Minimal valid PT3 template baked into the binary. Used by the "New song"
    path on the scan-prompt screen so users can start composing without
@@ -164,38 +162,6 @@ static const unsigned char empty_pt3[EMPTY_PT3_LEN] = {
     /* @224 pattern table (chA=$E6=230, chB=$E7=231, chC=$E8=232), @230 streams */
     0xE6, 0x00, 0xE7, 0x00, 0xE8, 0x00, 0xD0, 0xD0, 0xD0,
 };
-
-static unsigned char load_song_from_tape(void)
-{
-    unsigned int length;
-
-    /* 1) Read a 17-byte header. */
-    tape_arg_flag = 0x00;
-    tape_arg_dest = (unsigned int)tape_header;
-    tape_arg_len  = 17;
-    if (!tape_read_block()) return 0;
-
-    /* Only CODE blocks (type 3) carry song data. */
-    if (tape_header[0] != 3) return 0;
-
-    length = tape_header[11] | ((unsigned int)tape_header[12] << 8);
-    if (length == 0 || length > 0x3000) return 0;   /* sanity cap ~12 KB */
-
-    /* 2) Read the data block that follows. */
-    tape_arg_flag = 0xFF;
-    tape_arg_dest = TAPE_SONG_BASE;
-    tape_arg_len  = length;
-    if (!tape_read_block()) return 0;
-
-    /* 3) Detect format. PT3 files start with "ProTracker 3"; anything else
-       we treat as PT2. (PT2 has no fixed magic.) */
-    {
-        const unsigned char *d = (const unsigned char *)TAPE_SONG_BASE;
-        tape_song_fmt = (d[0] == 'P' && d[1] == 'r' && d[2] == 'o') ? 0 : 1;
-    }
-    tape_song_loaded = 1;
-    return 1;
-}
 
 /* Convert tape header bytes 1..10 into a null-terminated displayable
    filename. Non-printable bytes become '?'; trailing spaces get trimmed. */
@@ -318,6 +284,14 @@ static void put_dec(unsigned char n)
     putch('0' + n);
 }
 
+/* Move the print cursor and emit a string in one call. Collapses the ~50
+   `at(r,c); puts_str(s);` UI sites into a single CALL each (saves code). */
+static void at_puts(unsigned char row, unsigned char col, const char *s)
+{
+    at(row, col);
+    puts_str(s);
+}
+
 /* set_attr / set_inverse live in ts_io.c (shared). */
 
 /* Draw the nofile.tap-style banner at row 0:
@@ -375,13 +349,13 @@ static void show_splash(void)
     draw_banner();
     draw_status(1, "-- Welcome --");
 
-    at(5,  11); puts_str("TS Tracker");
-    at(7,  6);  puts_str("PT3 song editor for");
-    at(8,  9);  puts_str("the TS-2068");
+    at_puts(5,  11, "TS Tracker");
+    at_puts(7,  6, "PT3 song editor for");
+    at_puts(8,  9, "the TS-2068");
 
-    at(12, 3);  puts_str("a 64K Software production");
+    at_puts(12, 3, "a 64K Software production");
 
-    at(20, 5);  puts_str("Press any key to start.");
+    at_puts(20, 5, "Press any key to start.");
 
     while (key_any())  intrinsic_halt();
     while (!key_any()) intrinsic_halt();
@@ -394,16 +368,16 @@ static void show_scan_prompt(void)
     draw_banner();
     draw_status(1, "-- No tape loaded --");
 
-    at(4, 0);  puts_str("Insert a tape (or .tap in");
-    at(5, 0);  puts_str("an emulator), then:");
+    at_puts(4, 0, "Insert a tape (or .tap in");
+    at_puts(5, 0, "an emulator), then:");
 
     draw_menu_item(9,  'S', "can tape");
     draw_menu_item(10, 'N', "ew song (no tape needed)");
     draw_menu_item(11, 'Q', "uit");
 
-    at(13, 0); puts_str("After the last song plays,");
-    at(14, 0); puts_str("press CAPS+SPACE to stop");
-    at(15, 0); puts_str("scanning.");
+    at_puts(13, 0, "After the last song plays,");
+    at_puts(14, 0, "press CAPS+SPACE to stop");
+    at_puts(15, 0, "scanning.");
 }
 
 /* Decode every pattern into the editing model. Defined after the encoder
@@ -477,7 +451,7 @@ static void draw_dir_actions(void)
 {
     draw_menu_item(15, 'R', "escan");
     draw_menu_item(16, 'Q', "uit");
-    at(21, 0); puts_str("1-9 to edit a song              ");
+    at_puts(21, 0, "1-9 to edit a song              ");
 }
 
 static void show_directory(void)
@@ -538,7 +512,7 @@ static void scan_tape(void)
     cls();
     draw_banner();
     draw_status(1, "-- Scanning tape --");
-    at(21, 0); puts_str("CAPS+SPACE when tape ends");
+    at_puts(21, 0, "CAPS+SPACE when tape ends");
 
     dir_count = 0;
     while (dir_count < DIR_MAX) {
@@ -627,10 +601,10 @@ static unsigned char load_song_to_edit(unsigned char target)
     cls();
     draw_banner();
     draw_status(1, "-- Loading --");
-    at(4, 4);  puts_str("Loading ");
+    at_puts(4, 4, "Loading ");
     puts_str(directory[target].name);
     puts_str("...");
-    at(21, 0); puts_str("CAPS+SPACE abort");
+    at_puts(21, 0, "CAPS+SPACE abort");
 
     for (;;) {
         if (!tape_load_one_song()) return 0;
@@ -682,18 +656,18 @@ static void show_song_info(unsigned char idx)
     draw_banner();
     draw_status(1, "-- Song info --");
 
-    at(3, 0);  puts_str("File: ");
+    at_puts(3, 0, "File: ");
     puts_str(directory[idx].name);
-    at(4, 0);  puts_str("Type: ");
+    at_puts(4, 0, "Type: ");
     puts_str(directory[idx].fmt ? "PT2" : "PT3");
 
     /* Quick PT3-only summary. PT2 has a different layout; we'll add a
        parallel summary once the pattern decoder gets there. */
     if (directory[idx].fmt == 0) {
-        at(6, 0);  puts_str("Speed:     ");  put_dec(speed);
-        at(7, 0);  puts_str("Positions: ");  put_dec(num_pos);
+        at_puts(6, 0, "Speed:     ");  put_dec(speed);
+        at_puts(7, 0, "Positions: ");  put_dec(num_pos);
                    puts_str(" (loop @ ");    put_dec(loop_pos); putch(')');
-        at(8, 0);  puts_str("PatTbl:   $"); put_hex2(pat_off >> 8); put_hex2(pat_off & 0xFF);
+        at_puts(8, 0, "PatTbl:   $"); put_hex2(pat_off >> 8); put_hex2(pat_off & 0xFF);
 
         /* Position list: each byte is pattern_index*3. We scan to find the
            highest pattern index so we can show "patterns: N". */
@@ -701,10 +675,10 @@ static void show_song_info(unsigned char idx)
             unsigned char p = positions[i] / 3;
             if (p > max_pat) max_pat = p;
         }
-        at(9, 0); puts_str("Patterns:  "); put_dec(max_pat + 1);
+        at_puts(9, 0, "Patterns:  "); put_dec(max_pat + 1);
 
         /* First 12 positions, in two columns of 6 each. */
-        at(11, 0); puts_str("Positions:");
+        at_puts(11, 0, "Positions:");
         for (i = 0; i < num_pos && i < 12; i++) {
             at(13 + (i / 6), (i % 6) * 5 + 1);
             put_hex2(i);
@@ -713,11 +687,11 @@ static void show_song_info(unsigned char idx)
         }
         if (num_pos > 12) { at(14, 0); puts_str("..."); }
     } else {
-        at(7, 0);  puts_str("(PT2 metadata not yet");
-        at(8, 0);  puts_str(" decoded -- coming soon)");
+        at_puts(7, 0, "(PT2 metadata not yet");
+        at_puts(8, 0, " decoded -- coming soon)");
     }
 
-    at(21, 0); puts_str("V view pattern  Q back");
+    at_puts(21, 0, "V view pattern  Q back");
 }
 
 /* ---- PT3 pattern decoder --------------------------------------------------
@@ -892,9 +866,10 @@ static void decode_pattern(unsigned char pat_index)
    and emits a minimal byte stream that round-trips back to the same cells.
    Returns bytes written, or 0xFFFF on error.
 
-   Limitations:
-   - Ornament info isn't preserved (cell_t doesn't carry it). Saved songs
-     lose ornaments until we extend cell_t.
+   Notes:
+   - Ornaments ARE preserved: cell_t carries ornament:4 and encode_channel
+     emits the 0x40+ornament command (see below), so saved songs round-trip
+     ornaments. (They must not be silently dropped if cell_t is ever repacked.)
    - Empty row 0 of an active channel can't be a literal "nothing" in PT3, so
      it becomes a REST (see below). Fully silent channels emit just FIN.
    rebuild_song encodes straight into the song slot, so no staging buffer. */
@@ -1257,19 +1232,20 @@ static unsigned char top_for_cursor(unsigned char cursor)
 /* Shared literals (deduped to save code space; SDCC does not pool them). */
 static const char STATUS_KEYS[] = "K=help all keys  W=save A=play";
 static const char PRESS_ANY[]   = "Press any key to return.";
+static const char PATVIEW[]     = "-- Pattern view --";
 
 static void draw_pattern_frame(unsigned char idx, unsigned char num_pat)
 {
     (void)idx;
     cls();
     draw_banner();
-    draw_status(1, "-- Pattern view --");
+    draw_status(1, PATVIEW);
     at(2, 0); puts_str("Pat   /");           /* pat XX placeholder at col 4 */
               put_hex2(num_pat - 1);         /* max-pat YY at cols 7-8 */
               puts_str(" Row    Ch:  Oct: ");/* row XX, ch, oct placeholders */
     at(VIEW_TOP_ROW - 1, 0);
     puts_str("RR  ChA s   ChB s   ChC s");
-    at(21, 0); puts_str(STATUS_KEYS);
+    at_puts(21, 0, STATUS_KEYS);
 }
 
 /* Two-hex pattern number at col 4. Only changes when the user steps O/P. */
@@ -1413,7 +1389,7 @@ static void play_song_full(unsigned char user_pat)
     PTx_mute();
     while (key_any()) intrinsic_halt();
 
-    draw_status(1, "-- Pattern view --");
+    draw_status(1, PATVIEW);
     draw_pat_indicator(user_pat);
     set_border(7);
 }
@@ -1439,7 +1415,7 @@ static void play_current_pattern(unsigned char pat)
     draw_status(1, "-- Playing pattern --");
     PTx_init((unsigned int)TAPE_SONG_BASE);
     play_loop_until_key();
-    draw_status(1, "-- Pattern view --");
+    draw_status(1, PATVIEW);
     set_border(7);
 
     song[101] = saved_npos;
@@ -1653,8 +1629,8 @@ static unsigned char prompt_save_filename(unsigned char idx)
     draw_banner();
     draw_status(1, "-- Save to tape --");
 
-    at(4, 0); puts_str("Filename (max 8 chars).");
-    at(5, 0); puts_str("Letters / digits / space.");
+    at_puts(4, 0, "Filename (max 8 chars).");
+    at_puts(5, 0, "Letters / digits / space.");
 
     /* Filename cells at row 8 col 4..11; version suffix at col 13..14. */
     at(8, 4);
@@ -1671,14 +1647,14 @@ static unsigned char prompt_save_filename(unsigned char idx)
         putch(lo < 10 ? '0' + lo : 'A' + lo - 10);
     }
 
-    at(11, 0); puts_str("Bytes: ");
+    at_puts(11, 0, "Bytes: ");
     put_dec5_right(song_size);
 
-    at(13, 0); puts_str("Make sure tape is ready");
-    at(14, 0); puts_str("to record before ENTER.");
+    at_puts(13, 0, "Make sure tape is ready");
+    at_puts(14, 0, "to record before ENTER.");
 
-    at(20, 0); puts_str("DEL=erase  ENTER=save");
-    at(21, 0); puts_str("Q (or CAPS+SPACE)=cancel");
+    at_puts(20, 0, "DEL=erase  ENTER=save");
+    at_puts(21, 0, "Q (or CAPS+SPACE)=cancel");
 
     while (key_any()) intrinsic_halt();
 
@@ -1790,7 +1766,7 @@ static void show_tape_save_result(unsigned char ok)
     if (ok) {
         unsigned char i;
         draw_status(1, "-- Tape save OK --");
-        at(4, 0); puts_str("Wrote ");
+        at_puts(4, 0, "Wrote ");
         put_dec5_right(song_size);
         puts_str(" bytes as");
         at(5, 4);
@@ -1807,10 +1783,10 @@ static void show_tape_save_result(unsigned char ok)
         }
     } else {
         draw_status(1, "-- Tape save failed --");
-        at(4, 0); puts_str("Tape not in record mode,");
-        at(5, 0); puts_str("or BREAK pressed.");
+        at_puts(4, 0, "Tape not in record mode,");
+        at_puts(5, 0, "or BREAK pressed.");
     }
-    at(20, 0); puts_str(PRESS_ANY);
+    at_puts(20, 0, PRESS_ANY);
 }
 
 /* Shown when rebuild_song fails: the regenerated PT3 stream no longer fits
@@ -1821,9 +1797,9 @@ static void show_rebuild_error(void)
     cls();
     draw_banner();
     draw_status(1, "-- Song too big --");
-    at(4, 0); puts_str("Won't fit the tape slot.");
-    at(5, 0); puts_str("Remove notes or patterns.");
-    at(20, 0); puts_str(PRESS_ANY);
+    at_puts(4, 0, "Won't fit the tape slot.");
+    at_puts(5, 0, "Remove notes or patterns.");
+    at_puts(20, 0, PRESS_ANY);
 }
 
 /* After any modal screen (test result, save result), the editor's full-
@@ -1901,7 +1877,7 @@ static unsigned int prompt_jump_pattern(void)
 static void draw_pattern_hints(void)
 {
     draw_free_mem();                                       /* row 20 */
-    at(21, 0); puts_str(STATUS_KEYS);
+    at_puts(21, 0, STATUS_KEYS);
 }
 
 /* Modal Y/N input loop for destructive ops. Caller has already painted a
@@ -1943,28 +1919,28 @@ static void show_help_page(void)
     draw_banner();
     draw_status(1, "-- Help --");
 
-    at(3,  0);  puts_str("Move:");
-    at(4,  2);  puts_str("Arrows / 5 6 7 8");
-    at(5,  2);  puts_str("R=top  O/P=prev/next pat");
-    at(6,  2);  puts_str("F = jump to pattern XX");
+    at_puts(3,  0, "Move:");
+    at_puts(4,  2, "Arrows / 5 6 7 8");
+    at_puts(5,  2, "R=top  O/P=prev/next pat");
+    at_puts(6,  2, "F = jump to pattern XX");
 
-    at(8,  0);  puts_str("Edit (note mode):");
-    at(9,  2);  puts_str("Z..M = piano note");
-    at(10, 2);  puts_str("1..8 = octave / retune");
-    at(11, 2);  puts_str("ENTER=rest  SPACE=clear");
-    at(12, 2);  puts_str("I=insert row  CAPS+0=del");
-    at(13, 2);  puts_str("9 = clear channel column");
+    at_puts(8,  0, "Edit (note mode):");
+    at_puts(9,  2, "Z..M = piano note");
+    at_puts(10, 2, "1..8 = octave / retune");
+    at_puts(11, 2, "ENTER=rest  SPACE=clear");
+    at_puts(12, 2, "I=insert row  CAPS+0=del");
+    at_puts(13, 2, "9 = clear channel column");
 
-    at(14, 0);  puts_str("Instruments:");
-    at(15, 2);  puts_str("U: Oct/Vol/Smp/Orn mode");
-    at(16, 2);  puts_str("0..F sets vol/samp/orn");
-    at(17, 2);  puts_str("E=sample  T=ornament edit");
+    at_puts(14, 0, "Instruments:");
+    at_puts(15, 2, "U: Oct/Vol/Smp/Orn mode");
+    at_puts(16, 2, "0..F sets vol/samp/orn");
+    at_puts(17, 2, "E=sample  T=ornament edit");
 
-    at(18, 0);  puts_str("Save / play:");
-    at(19, 2);  puts_str("W=save tape (auto-rebuild)");
-    at(20, 2);  puts_str("A=play song  L=loop pat");
+    at_puts(18, 0, "Save / play:");
+    at_puts(19, 2, "W=save tape (auto-rebuild)");
+    at_puts(20, 2, "A=play song  L=loop pat");
 
-    at(21, 0); puts_str("  Edits auto-save. Any key=back.");
+    at_puts(21, 0, "  Edits auto-save. Any key=back.");
 
     while (key_any()) intrinsic_halt();
     while (!key_any()) intrinsic_halt();
@@ -2015,11 +1991,11 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
     cls();
     draw_banner();
     draw_status(1, kind ? "-- Ornament editor --" : "-- Sample editor --");
-    at(3, 0); puts_str(kind ? "Ornament " : "Sample ");
+    at_puts(3, 0, kind ? "Ornament " : "Sample ");
               put_hex2(sel);
               puts_str("  loop "); se_hex2(loop, fc == 0);
               puts_str(" len ");   se_hex2(len,  fc == 1);
-    at(5, 0); puts_str(kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone TN");
+    at_puts(5, 0, kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone TN");
     for (i = 0; i < len && i < SE_VIS_LINES; i++) {
         unsigned int  lo = off + 2 + (unsigned int)i * lsz;
         unsigned char fb = (unsigned char)(2 + i * lsz);
@@ -2051,7 +2027,7 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
        channel and PRINT-AT there via RST $10 corrupts/resets. */
     at(20, 0); puts_str(kind ? "SPACE=field  0-F=edit"
                              : "SPACE=fld 0-F=ed T=tone N=noise");
-    at(21, 0); puts_str("O/P=sel  len:resize  Q=back");
+    at_puts(21, 0, "O/P=sel  len:resize  Q=back");
 }
 
 /* Resize (and, implicitly, fork to a private block) instrument `sel` of `kind`
