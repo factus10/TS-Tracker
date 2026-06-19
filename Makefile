@@ -80,7 +80,7 @@ HIGH_SONG_BASE := $(PLAYER_SONG_BASE_HEX)
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
 
-.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker clean
+.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker release clean
 
 all: smoketest pt3-player songs-tape tracker
 
@@ -241,6 +241,22 @@ $(BUILDDIR)/songs.tap: $(MAKEFILE_LIST) tools/songs_to_tape.py | $(BUILDDIR)
 	    i=$$((i+1)); \
 	done
 	python3 tools/songs_to_tape.py $(BUILDDIR)/songs.tap $(BUILDDIR)/tape_staged/*.pt3
+
+# ---- release (downloadable zip of the prebuilt tapes + manual) --------------
+# Bundles both apps' .tap, the sample songs, the manual PDF and a quick-start
+# README into release/ts-tracker.zip, and refreshes the loose copies the
+# top-level README links. docs/manual.pdf is committed (regenerate it with
+# tools in ~/dotmatrix-pdf if the manual changes).
+release: pt3-player tracker songs-tape
+	@rm -rf $(BUILDDIR)/release && mkdir -p $(BUILDDIR)/release
+	cp $(BUILDDIR)/tracker.tap $(BUILDDIR)/pt3-player.tap $(BUILDDIR)/songs.tap $(BUILDDIR)/release/
+	cp docs/manual.pdf $(BUILDDIR)/release/TS-Tracker-Manual.pdf
+	cp release/README.txt $(BUILDDIR)/release/README.txt
+	cd $(BUILDDIR)/release && rm -f ../ts-tracker.zip && zip -q -X ../ts-tracker.zip \
+	    tracker.tap pt3-player.tap songs.tap TS-Tracker-Manual.pdf README.txt
+	cp $(BUILDDIR)/ts-tracker.zip release/ts-tracker.zip
+	cp $(BUILDDIR)/tracker.tap $(BUILDDIR)/pt3-player.tap $(BUILDDIR)/songs.tap release/
+	@echo "release/ts-tracker.zip ready ($$(du -h release/ts-tracker.zip | cut -f1))"
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):
