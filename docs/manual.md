@@ -224,22 +224,27 @@ character. An *ornament* is a short pitch arpeggio a note steps through. Press
 
 ```
 Sample 01  loop 00 len 03
-LN b0 b1 b2 b3  Vl Tone
-00 FF 0A 00 00  A +    0
-01 00 00 00 00  0 +    0
-02 00 00 00 00  0 +    0
+LN b0 b1 b2 b3  Vl Tone TN
+00 FF 0A 00 00  A +    0 TN
+01 00 00 00 00  0 +    0 TN
+02 00 00 00 00  0 +    0 TN
 ```
 
 Each sample is a short list of **lines** the AY steps through, one per frame,
 looping at the **loop** point. Each line is four bytes (`b0`-`b3`); the editor
 shows them in hex so every detail of the PT3 format is reachable, with the
-decoded **volume** and **tone** offset alongside.
+decoded **volume**, **tone** offset, and the **TN** flags alongside. The `TN`
+column shows whether **t**one and **n**oise are sounding on that line --- a
+letter when on, `-` when off.
 
 - **O** / **P** --- choose which sample (00-1F) or ornament (0-F) to edit.
 - **SPACE** --- step the cursor through the fields (loop, length, then each
   line's bytes --- four per line for a sample, one for an ornament).
 - **0**-**F** --- set the highlighted field (two hex digits per byte). For an
   ornament each line is a single signed note offset, shown in decimal.
+- **T** / **N** --- (samples) toggle **tone** / **noise** on the line the
+  cursor is in. This is how you make a clean tone vs. a noisy hit without
+  touching hex.
 - Editing the **len** field grows or shrinks it --- and gives it its own
   private copy, so you can build a second distinct instrument without
   disturbing the first. (Up to 13 lines are shown at once.)
@@ -280,10 +285,12 @@ one per frame, added to the note. It only moves pitch, not timbre.
   volume envelope.
 - **Tone** --- a **pitch offset** for that frame (`0` = none). Small
   alternating values make vibrato; a steady ramp makes a pitch bend.
-- **b0 b1 b2 b3** --- the raw four bytes. `Vl` lives in `b1` and `Tone` in
-  `b2`/`b3`; the other bits in `b0`/`b1` are the on/off switches (tone, noise,
-  the hardware envelope) and slide flags. The editor shows them as hex because
-  there isn't a friendly toggle for them yet --- see *Percussion* below.
+- **TN** --- whether **t**one and **n**oise are sounding this line (letter =
+  on, `-` = off). Press **T** / **N** to toggle them on the cursor's line.
+- **b0 b1 b2 b3** --- the raw four bytes, for full control. `Vl` lives in `b1`,
+  `Tone` in `b2`/`b3`, the tone/noise switches in `b1` too; the remaining bits
+  in `b0`/`b1` are the hardware-envelope flag and slide settings, which you set
+  as hex (no friendly column yet).
 
 ## Making different sounds
 
@@ -303,11 +310,11 @@ lines) plus maybe a little `Tone` movement:
   chord shimmer (the classic chiptune sound); `0, 3, 7` = minor, `0, 12` =
   octave. Assign it to a note with `U`-`Orn`.
 - **Percussion / snare / hi-hat** --- these need **noise** instead of (or as
-  well as) tone, plus a fast `Vl` decay. Turning noise on is one of the on/off
-  bits packed into `b0`/`b1`, which today you set as a raw hex value rather
-  than a friendly switch --- so noise sounds are currently an advanced,
-  edit-the-bytes affair. (A future build may add Tone/Noise/Env toggle columns
-  to make this a one-key thing.)
+  well as) tone, plus a fast `Vl` decay. Press **N** to turn noise on (the `TN`
+  column shows `N`), set `Vl` to fall quickly (e.g. `F 9 4 0`), and you have a
+  hit. Press **T** to drop the tone for pure noise. The noise *pitch* uses the
+  song's default for now (there's no per-sample noise-pitch control yet), so
+  every noise hit shares one timbre --- enough for a recognisable snare or hat.
 
 ## Where it goes
 

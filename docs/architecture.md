@@ -108,6 +108,13 @@ in the song slot** (no RAM model — see memory map):
 - **Edit:** every byte is editable in hex (full PT3 fidelity), with decoded
   Vol (`b1&0x0F`)/Tone (`b2|b3<<8`) for samples, signed note-offset for
   ornaments. SPACE walks a field cursor; `0–F` rolls a 2-hex value into the byte.
+- **Tone/Noise toggles (samples):** the `TN` column decodes the mixer bits and
+  `T`/`N` flip them on the cursor's line. Verified against `CHREGS` (PTxPlay.asm
+  `CH_MIX`, ~1090): **`b1` bit4 = tone-disable, bit7 = noise-disable** (both
+  active-low, `1`=off), so "on" = bit clear. Confirmed empirically — across two
+  real PT3 tunes, sample lines are overwhelmingly tone-on/noise-off, with
+  noise-on only on percussion lines. (Hardware-envelope toggle and per-sample
+  noise *pitch* deferred — see TODO.)
 - **Create / resize:** editing the `len` field calls `instr_resize`, which
   **appends** the new block at `base_pat_off`, repoints just this instrument,
   bumps `base_pat_off`, and lets `rebuild_song` re-lay the pattern region after

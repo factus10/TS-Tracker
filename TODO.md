@@ -22,6 +22,8 @@ The editor is feature-complete for single-song authoring and editing:
   every byte/line, create/resize (in-slot append + rebuild). Per-cell sample
   AND ornament assignment via `U` (Oct/Vol/Smp/Orn); ornaments preserved
   (3-byte cell kept via bitfield, so MAX_PATTERNS still 14).
+- **Tone/Noise toggles** — the sample editor's `TN` column + `T`/`N` keys flip
+  the mixer bits, so "clean tone vs. noisy snare" is one key (no hex needed).
 - **Help** — `K` shows a full key reference. (Save=`W`, Help=`K`; `S`/`H` are
   the C#/G# piano keys.)
 
@@ -55,6 +57,12 @@ All committed to `main`.
 - [ ] **Tempo / speed editing** — we read `song[100]` but offer no way to change
       it (A.Y. Tracker `T`-mode style up/down).
 - [ ] **Multi-pattern UI verification pass** on a real song (see Known issues).
+- [ ] **Hardware-envelope toggle (sample `E` flag)** — deferred with Tone/Noise:
+      `b0` bit0 only sounds once a note carries an envelope command (shape +
+      period), which the tracker can't author yet. Add envelope commands first.
+- [ ] **Per-sample noise pitch** — PT3 has no per-line noise period; it's the
+      global `Ns_Base` + a `b0` delta. Needs a pattern-level noise command +
+      editor to tune snare-bright vs. tom-low.
 
 ## To consider — ideas from the origin programs
 
@@ -93,6 +101,8 @@ Coloured volume bars from the player are worth reusing for live-playback preview
 - [x] **Per-cell sample + ornament assignment** (`U`: Oct/Vol/Smp/Orn)
 - [x] **Full-fidelity instrument editors** — `E` sample / `T` ornament: edit /
       create / resize; ornaments preserved (bitfield keeps MAX_PATTERNS=14)
+- [x] **Tone/Noise toggles** — `TN` column + `T`/`N` keys in the sample editor
+      (mixer bits verified vs CHREGS; polarity confirmed on real tunes)
 - [x] Shared `pt_engine` module; memory reclamation (~1.6 KB freed); PTX_ORIGIN
       raised `$D700→$DAC0` to fund the editor
 - [x] Free-memory display; smart incremental redraw

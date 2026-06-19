@@ -1254,6 +1254,10 @@ static unsigned char top_for_cursor(unsigned char cursor)
    The XX / YY / A / 4 cells are written by draw_*_indicator below.
    (idx is unused now that the filename row is gone; kept for call-site
    symmetry with repaint_pattern_view.) */
+/* Shared literals (deduped to save code space; SDCC does not pool them). */
+static const char STATUS_KEYS[] = "K=help all keys  W=save A=play";
+static const char PRESS_ANY[]   = "Press any key to return.";
+
 static void draw_pattern_frame(unsigned char idx, unsigned char num_pat)
 {
     (void)idx;
@@ -1265,7 +1269,7 @@ static void draw_pattern_frame(unsigned char idx, unsigned char num_pat)
               puts_str(" Row    Ch:  Oct: ");/* row XX, ch, oct placeholders */
     at(VIEW_TOP_ROW - 1, 0);
     puts_str("RR  ChA s   ChB s   ChC s");
-    at(21, 0); puts_str("K=help all keys  W=save A=play");
+    at(21, 0); puts_str(STATUS_KEYS);
 }
 
 /* Two-hex pattern number at col 4. Only changes when the user steps O/P. */
@@ -1801,13 +1805,12 @@ static void show_tape_save_result(unsigned char ok)
             putch(hi < 10 ? '0' + hi : 'A' + hi - 10);
             putch(lo < 10 ? '0' + lo : 'A' + lo - 10);
         }
-        at(7, 0); puts_str("Next save bumps the version.");
     } else {
         draw_status(1, "-- Tape save failed --");
         at(4, 0); puts_str("Tape not in record mode,");
         at(5, 0); puts_str("or BREAK pressed.");
     }
-    at(20, 0); puts_str("Press any key to return.");
+    at(20, 0); puts_str(PRESS_ANY);
 }
 
 /* Shown when rebuild_song fails: the regenerated PT3 stream no longer fits
@@ -1820,7 +1823,7 @@ static void show_rebuild_error(void)
     draw_status(1, "-- Song too big --");
     at(4, 0); puts_str("Won't fit the tape slot.");
     at(5, 0); puts_str("Remove notes or patterns.");
-    at(20, 0); puts_str("Press any key to return.");
+    at(20, 0); puts_str(PRESS_ANY);
 }
 
 /* After any modal screen (test result, save result), the editor's full-
@@ -1898,7 +1901,7 @@ static unsigned int prompt_jump_pattern(void)
 static void draw_pattern_hints(void)
 {
     draw_free_mem();                                       /* row 20 */
-    at(21, 0); puts_str("K=help all keys  W=save A=play");
+    at(21, 0); puts_str(STATUS_KEYS);
 }
 
 /* Modal Y/N input loop for destructive ops. Caller has already painted a
@@ -2016,7 +2019,7 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
               put_hex2(sel);
               puts_str("  loop "); se_hex2(loop, fc == 0);
               puts_str(" len ");   se_hex2(len,  fc == 1);
-    at(5, 0); puts_str(kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone");
+    at(5, 0); puts_str(kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone TN");
     for (i = 0; i < len && i < SE_VIS_LINES; i++) {
         unsigned int  lo = off + 2 + (unsigned int)i * lsz;
         unsigned char fb = (unsigned char)(2 + i * lsz);
@@ -2037,9 +2040,17 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
             put_hex1(b1 & 0x0F); putch(' ');
             if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
             put_dec5_right((unsigned int)tone);
+            /* tone/noise are active-low DISABLE bits in b1 (mixer); show the
+               channel as ON (letter) when the bit is clear. */
+            putch(' ');
+            putch((b1 & 0x10) ? '-' : 'T');
+            putch((b1 & 0x80) ? '-' : 'N');
         }
     }
-    at(20, 0); puts_str("SPACE=field  0-F=edit");
+    /* Keep all prints on rows <=21: rows 22-23 are the ROM's lower-screen
+       channel and PRINT-AT there via RST $10 corrupts/resets. */
+    at(20, 0); puts_str(kind ? "SPACE=field  0-F=edit"
+                             : "SPACE=fld 0-F=ed T=tone N=noise");
     at(21, 0); puts_str("O/P=sel  len:resize  Q=back");
 }
 
@@ -2140,6 +2151,19 @@ static void show_instr_editor(unsigned char kind)
             if (key_space()) {
                 fc = (unsigned char)((fc + 1) % nf);
                 while (key_space()) intrinsic_halt();
+                break;
+            }
+            /* Samples: T / N toggle the tone / noise DISABLE bit (b1 bit4 /
+               bit7) on the line the cursor is in -- a one-key snare-vs-tone. */
+            if (!kind && (key_T() || key_N())) {
+                unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
+                /* samples only here, so lsz==4: shift instead of divide. */
+                unsigned char cl = (fc >= 2) ? (unsigned char)((fc - 2) >> 2) : 0;
+                unsigned char mask = key_T() ? 0x10 : 0x80;
+                instr_ensure_private(kind, sel);
+                off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
+                w[off + 2 + ((unsigned int)cl << 2) + 1] ^= mask;
+                while (key_T() || key_N()) intrinsic_halt();
                 break;
             }
             h = read_hex_key();
