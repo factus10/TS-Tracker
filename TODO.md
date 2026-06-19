@@ -12,11 +12,16 @@ The editor is feature-complete for single-song authoring and editing:
 - **Decoded-model editing** — all patterns decoded in RAM; edits are instant and
   lossless across pattern switches; **no manual commit**. The PT3 byte stream is
   regenerated on demand (`rebuild_song`) only for play/save.
-- **Save to tape** — `S` rebuilds + writes a fresh CODE block via the EXROM
+- **Save to tape** — `W` rebuilds + writes a fresh CODE block via the EXROM
   SA-BYTES trampoline; 8-char name + auto-incrementing 2-hex version suffix.
 - **Denser grid** — 16 visible rows with yellow/cyan beat-line banding.
 - **In-editor playback** — `A` play song, `L` loop current pattern.
-- **Help** — `H` shows a full key reference.
+- **Per-cell sample** — `U` cycles Oct/Vol/**Smp**; Smp mode sets a note's
+  instrument number.
+- **Instrument editor** — `E` opens a full-fidelity sample editor: edit every
+  byte of every line, create/resize samples (in-slot append + rebuild).
+- **Help** — `K` shows a full key reference. (Save=`W`, Help=`K`; `S`/`H` are
+  the C#/G# piano keys.)
 
 Verified via direct function execution (byte-level: model→rebuild→PT3,
 empty-row-0 REST) and the real UI (new song → note → `S` saves with the edit).
@@ -30,15 +35,20 @@ All committed to `main`.
 - **`rebuild_song` assumes standard PT3 layout** (pattern table + data last,
   after instrument defs). Non-standard songs that interleave them would be
   corrupted on rebuild — not guarded. See `docs/architecture.md`.
-- **Ornaments are dropped** (cell_t has no ornament field). Pre-existing; adding
-  one costs ~4 patterns of capacity.
+- **Ornaments are dropped** (cell_t has no ornament field; the sample editor
+  covers samples, not the separate ornament tables). Adding per-cell ornament
+  costs ~4 patterns of capacity. See Phase C in the plan.
 - **`MAX_PATTERNS = 14`** — sized to the `$6000` gap and roughly matched to the
-  6.4 KB save budget. Bigger songs need memory-map surgery.
+  ~5.5 KB save budget (`SONG_BUDGET = $FB00−$E500`, after PTX_ORIGIN was raised
+  to `$DAC0` to fund the editor). Bigger songs need memory-map surgery.
+- **Sample editor v1 limits** — ≤13 lines shown/editable per sample; a
+  resized-away old block is left as dead bytes (bounded).
 - **PT2 songs are view/play-only** — no PT2 decoder; the editor refuses them.
 
 ## Remaining backlog (committed scope, unbuilt)
 
-- [ ] **Hex sample entry** — right cursor column edits the sample digit.
+- [ ] **Ornament editing + per-cell ornament** (Phase C) — needs a 4th cell_t
+      byte (MAX_PATTERNS tradeoff) + an ornament editor + encode emission.
 - [ ] **Octave-shift current cell** up/down as a separate op from setting the
       base octave (today one key does both).
 - [ ] **Live playback while editing** — PTxPlay running against the edit buffer;
@@ -80,6 +90,9 @@ Coloured volume bars from the player are worth reusing for live-playback preview
 - [x] **Decoded-model rearchitecture** — model is source of truth, auto-rebuild,
       no manual commit; empty-row-0 emits a REST instead of refusing
 - [x] **Denser grid (16 rows) + beat-line banding**
-- [x] **Help page** (`H`, full key reference)
-- [x] Shared `pt_engine` module; memory reclamation (~1.6 KB freed)
+- [x] **Help page** (`K`, full key reference); Save/Help moved off the piano
+- [x] **Per-cell sample assignment** (`U` Smp mode)
+- [x] **Full-fidelity instrument (sample) editor** (`E`): edit / create / resize
+- [x] Shared `pt_engine` module; memory reclamation (~1.6 KB freed); PTX_ORIGIN
+      raised `$D700→$DAC0` to fund the editor
 - [x] Free-memory display; smart incremental redraw

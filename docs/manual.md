@@ -197,12 +197,51 @@ Other note-entry keys:
 | CAPS SHIFT + `0` | **Delete** the row, pulling later rows up |
 | `9` | **Clear the whole channel** (asks Y/N first) |
 
-## Setting volumes
+## Setting volumes and samples
 
-Each cell can carry its own volume. Press **U** to switch the editor into
-**volume mode** --- the indicator at the top changes from `Oct:` to `Vol:`.
-Now the keys **0** to **F** set the volume (0 = silent, F = loudest) of the
-cell under the cursor. Press **U** again to return to note mode.
+The **U** key cycles a small edit mode shown at the top right, through three
+settings:
+
+- **Oct** (default) --- the number keys set the octave, as above.
+- **Vol** --- the keys **0**-**F** set the volume of the cell under the cursor
+  (0 = silent, F = loudest).
+- **Smp** --- the keys **0**-**F** set which **sample** (instrument, 00-1F) the
+  cell's note plays with; type two digits for samples above 0F. The chosen
+  number shows in the cell's right-hand `s` column.
+
+Press **U** again to cycle back round to Oct. (While in Vol or Smp mode the
+letter keys feed the value, so press **U** back to Oct before using the
+command keys.)
+
+# The instrument (sample) editor
+
+A *sample* is an instrument: a little per-frame envelope that gives a note its
+character. Press **E** in the pattern view to open the **sample editor**.
+
+```
+Sample 01  loop 00 len 03
+LN b0 b1 b2 b3  Vl Tone
+00 FF 0A 00 00  A +    0
+01 00 00 00 00  0 +    0
+02 00 00 00 00  0 +    0
+```
+
+Each sample is a short list of **lines** the AY steps through, one per frame,
+looping at the **loop** point. Each line is four bytes (`b0`-`b3`); the editor
+shows them in hex so every detail of the PT3 format is reachable, with the
+decoded **volume** and **tone** offset alongside.
+
+- **O** / **P** --- choose which sample (00-1F) to edit.
+- **SPACE** --- step the cursor through the fields (loop, length, then each
+  line's four bytes).
+- **0**-**F** --- set the highlighted field (two hex digits per byte).
+- Editing the **len** field grows or shrinks the sample --- and gives it its
+  own private copy, so you can build a second distinct instrument without
+  disturbing the first. (Up to 13 lines are shown at once.)
+- **Q** --- return to the pattern view.
+
+To use an instrument, set a note's sample number with `U`-`Smp` mode (above),
+then `A` to hear it.
 
 # Hearing your work
 
@@ -270,21 +309,21 @@ Press any key to return exactly where you left off.
 | `R` | Jump to row 0 | SPACE | Clear cell |
 | `A` | Play song | `I` | Insert row |
 | `L` | Loop pattern | CAPS+0 | Delete row |
-| `U` | Volume mode | `9` | Clear channel |
-| `W` | Save to tape | `K` | Help |
-| `Q` | Back to song info | | |
+| `U` | Oct/Vol/Smp mode | `9` | Clear channel |
+| `E` | Sample editor | `K` | Help |
+| `W` | Save to tape | `Q` | Back to song info |
 
 # Limits and notes
 
 - A song may use up to **14 patterns**.
 - When you save, the whole tune must fit the cassette song area (about
-  **6.4 K**). The **Free** counter warns you as you approach the limit.
+  **5.5 K**, instruments + patterns combined). The **Free** counter warns you
+  as you approach the limit.
 - TS Tracker edits **PT3** songs. **PT2** songs play but cannot be edited.
 - An empty first row on a sounding channel is saved as a rest --- silence at
   the start of the pattern --- because the PT3 format always reads row zero.
-- Instrument definitions (samples and ornaments) from a loaded song are
-  preserved unchanged; this version edits notes, volumes and arrangement,
-  not the instruments themselves.
+- The sample editor shows up to 13 lines of a sample at once. Ornaments (the
+  separate pitch-arpeggio tables) are not yet editable.
 
 # Credits
 

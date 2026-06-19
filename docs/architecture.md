@@ -76,10 +76,35 @@ The 64K is essentially full. Single source of truth for the constants is the
 | Display file | `$4000–$5AFF` | 6912 B |
 | ZX system vars | `$5C00–$5CB5` | do not stomp |
 | **Decoded model** | **`$6000–$7F80`** | `MAX_PATTERNS=14` × 576 B; in the free gap |
-| C binary (code+data) | `$8000–~$D0A0` | ~20.6 KB; ~1.6 KB headroom to PTxPlay |
-| PTxPlay engine | `$D700–$E1FF` | ~2.8 KB |
-| PT3 song slot | `$E200–~$FAFF` | `SONG_BUDGET` = `$FB00−$E200` = 6400 B |
+| C binary (code+data) | `$8000–~$D7E0` | ~22.5 KB; headroom to PTxPlay shrinks as it grows |
+| PTxPlay engine | `$DAC0–$E4FE` | 2622 B (gap to song slot = 2624 B) |
+| PT3 song slot | `$E500–~$FAFF` | `SONG_BUDGET` = `$FB00−$E500` = 5632 B |
 | Stack / ROM tape buffers | `$FB00+` | reserved |
+
+`PTX_ORIGIN` was raised `$D700→$DAC0` (and `TAPE_SONG_BASE` `$E200→$E500`) to
+give the instrument editor code room; the song slot shrank 6400→5632 B but
+still holds the largest bundled song (5464 B), so the player is unaffected.
+`ptxplay_addrs.h` regenerates from the origin, so only the two Makefile
+constants move.
+
+## Instrument (sample) editor
+
+`E` from the pattern view opens `show_sample_editor` (src/tracker.c). Samples
+are edited **in place in the song slot** (no RAM model — see memory map):
+- **Edit:** every byte of every sample line is editable in hex (full PT3
+  fidelity), with decoded Vol (`b1&0x0F`) and signed Tone (`b2|b3<<8`) shown.
+  SPACE walks a field cursor; `0–F` rolls a 2-hex value into the byte.
+- **Create / resize:** editing the `len` field calls `sample_resize`, which
+  **appends** the new block at `base_pat_off`, repoints just this sample,
+  bumps `base_pat_off`, and lets `rebuild_song` re-lay the pattern region after
+  it. Only this sample's pointer + `base_pat_off` change — no general pointer
+  fix-up. Over-budget resizes roll back. `sample_ensure_private` forks a block
+  shared by multiple slots on first in-place edit, so a new song's instruments
+  become individually editable. v1 limits: ≤13 lines shown/editable per sample;
+  resized-away old blocks are left as dead bytes (bounded).
+- Per-cell sample assignment: `U` cycles Oct/Vol/**Smp**; in Smp mode `0–F`
+  rolls a 2-hex sample number (00..1F) into the cursor cell (`encode_channel`
+  already serialised `cell->sample`).
 
 Consequences:
 - The decoded model lives in the `$6000` gap precisely because the binary has no
