@@ -827,10 +827,15 @@ static void show_song_info(unsigned char idx)
    PTxPlay's handlers (C_GLISS=3, C_PORTM=5, etc.). */
 
 typedef struct {
-    signed char    note;       /* -1 = no event, -2 = release, 0..95 = note */
-    unsigned char  sample;     /* 0..31 */
-    unsigned char  volume;     /* 0..15 */
+    signed char    note;          /* -1 = no event, -2 = release, 0..95 = note */
+    unsigned char  sample;        /* 0..31 */
+    unsigned char  volume   : 4;  /* 0..15 */
+    unsigned char  ornament : 4;  /* 0..15 -- shares the byte with volume so the
+                                     cell stays 3 bytes (keeps MAX_PATTERNS=14) */
 } cell_t;
+/* Compile-time guard: the model is a fixed-address array, so a 4-byte cell
+   would overrun the gap into the C image. Fail the build if packing slips. */
+typedef char cell_must_be_3_bytes[(sizeof(cell_t) == 3) ? 1 : -1];
 
 #define PV_ROWS_MAX 64
 #define PAT_CELLS   (PV_ROWS_MAX * 3)        /* cells per pattern (64 rows x 3) */
@@ -949,17 +954,19 @@ static void decode_pattern_streams(const unsigned char *p_a,
         for (c = 0; c < 3; c++) {
             cell_t *cell = &pattern_view[row * 3 + c];
             decode_channel_row(&ch[c]);
-            cell->note   = ch[c].note;
-            cell->sample = ch[c].sample;
-            cell->volume = ch[c].volume;
+            cell->note     = ch[c].note;
+            cell->sample   = ch[c].sample;
+            cell->volume   = ch[c].volume;
+            cell->ornament = ch[c].ornament;
         }
     }
     for (; row < PV_ROWS_MAX; row++) {
         for (c = 0; c < 3; c++) {
             cell_t *cell = &pattern_view[row * 3 + c];
-            cell->note   = -1;
-            cell->sample = 0;
-            cell->volume = 0;
+            cell->note     = -1;
+            cell->sample   = 0;
+            cell->volume   = 0;
+            cell->ornament = 0;
         }
     }
 }
@@ -995,6 +1002,7 @@ static unsigned int encode_channel(unsigned char chan,
 {
     unsigned char cur_sample = 0;
     unsigned char cur_volume = 15;
+    unsigned char cur_ornament = 0;
     unsigned char cur_skip   = 0;
     unsigned int  pos = 0;
     unsigned char i, row, n_events = 0;
@@ -1065,6 +1073,11 @@ static unsigned int encode_channel(unsigned char chan,
             if (pos + 1 > max_out) return 0xFFFFu;
             out[pos++] = 0xC0 + cell->volume;     /* 0xC1..0xCF */
             cur_volume = cell->volume;
+        }
+        if (cell->ornament != cur_ornament) {
+            if (pos + 1 > max_out) return 0xFFFFu;
+            out[pos++] = 0x40 + cell->ornament;   /* 0x40..0x4F set ornament */
+            cur_ornament = cell->ornament;
         }
         if (pos + 1 > max_out) return 0xFFFFu;
         if (cell->note == -2) {
@@ -1392,11 +1405,11 @@ static void draw_oct_indicator(unsigned char octave)
     putch('0' + octave);
 }
 
-/* Edit-mode indicator label at col 22: Oct / Vol / Smp (mode 0/1/2). */
+/* Edit-mode indicator label at col 22: Oct / Vol / Smp / Orn (mode 0/1/2/3). */
 static void draw_mode_label(unsigned char mode)
 {
     at(2, 22);
-    puts_str(mode == 2 ? "Smp:" : (mode == 1 ? "Vol:" : "Oct:"));
+    puts_str(mode == 3 ? "Orn:" : mode == 2 ? "Smp:" : mode == 1 ? "Vol:" : "Oct:");
 }
 
 /* The value field at cols 26-27, reflecting the active edit mode: octave
@@ -1407,8 +1420,9 @@ static void draw_cell_value(unsigned char mode, unsigned char octave,
 {
     at(2, 26);
     if      (mode == 2) put_hex2(c->sample);             /* 2 chars */
-    else if (mode == 1) { put_hex1(c->volume); putch(' '); }
-    else                { putch('0' + octave); putch(' '); }
+    else if (mode == 1) { put_hex1(c->volume);   putch(' '); }
+    else if (mode == 3) { put_hex1(c->ornament); putch(' '); }
+    else                { putch('0' + octave);   putch(' '); }
 }
 
 /* Redraw all VIEW_HEIGHT rows of the grid against pattern_view[] starting
@@ -2056,8 +2070,8 @@ static void show_help_page(void)
     at(13, 2);  puts_str("9 = clear channel column");
 
     at(15, 0);  puts_str("Vol / sample (U cycles):");
-    at(16, 2);  puts_str("U: Oct / Vol / Smp mode");
-    at(17, 2);  puts_str("0..F sets vol or sample");
+    at(16, 2);  puts_str("U: Oct/Vol/Smp/Orn mode");
+    at(17, 2);  puts_str("0..F sets vol/samp/orn");
 
     at(18, 0);  puts_str("Save / play:");
     at(19, 2);  puts_str("W=save tape (auto-rebuild)");
@@ -2335,7 +2349,7 @@ static void show_pattern(unsigned char idx)
                hex digits roll a 2-digit sample number (00..1F) into the cell.
                The label at col 22 and the value at col 26-27 follow the mode. */
             while (key_U()) intrinsic_halt();
-            edit_mode = (unsigned char)((edit_mode + 1) % 3);
+            edit_mode = (unsigned char)((edit_mode + 1) % 4);
             draw_mode_label(edit_mode);
             draw_cell_value(edit_mode, octave,
                 &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
@@ -2372,6 +2386,8 @@ static void show_pattern(unsigned char idx)
                 cell_t *c = &pattern_view[(unsigned int)cursor * 3 + cursor_ch];
                 if (edit_mode == 1) {
                     c->volume = (unsigned char)h;
+                } else if (edit_mode == 3) {
+                    c->ornament = (unsigned char)h;             /* 0..15 */
                 } else {
                     /* Smp: roll a 2-hex-digit sample number, clamp to 0..31. */
                     c->sample = (unsigned char)(((c->sample << 4) | (unsigned char)h) & 0x1F);
