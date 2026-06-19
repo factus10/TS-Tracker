@@ -258,6 +258,13 @@ static unsigned char key_break(void) {
     return (read_row(0xFE) & 0x01) && (read_row(0x7F) & 0x01);
 }
 
+/* Any key down? (used by the splash's press-any-key wait.) */
+static unsigned char key_any(void)
+{
+    return read_row(0xFE) || read_row(0xFD) || read_row(0xFB) || read_row(0xF7)
+        || read_row(0xEF) || read_row(0xDF) || read_row(0xBF) || read_row(0x7F);
+}
+
 /* Sinclair keyboard matrix:
      row $F7: 1, 2, 3, 4, 5  (bits 0..4)
      row $EF: 0, 9, 8, 7, 6  (bits 0..4)
@@ -362,6 +369,22 @@ static void show_scan_prompt(void)
     at(13, 0); puts_str("After the last song plays,");
     at(14, 0); puts_str("press CAPS+SPACE to stop");
     at(15, 0); puts_str("scanning.");
+}
+
+/* Title screen shown once at start, matching the tracker's splash. */
+static void show_splash(void)
+{
+    cls();
+    draw_banner();
+    draw_status(2, "-- Welcome --");
+    at(6,  9);  puts_str("PT2/PT3 Player");
+    at(8,  8);  puts_str("for the TS-2068");
+    at(12, 3);  puts_str("a 64K Software production");
+    at(20, 5);  puts_str("Press any key to start.");
+
+    while (key_any())  intrinsic_halt();
+    while (!key_any()) intrinsic_halt();
+    while (key_any())  intrinsic_halt();
 }
 
 static void show_directory(void)
@@ -758,6 +781,8 @@ void main(void)
     AY_Init();
     PTx_mute();
     set_border(7);
+
+    show_splash();
 
     for (;;) {
         if (dir_count == 0) {
