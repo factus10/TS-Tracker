@@ -26,6 +26,12 @@ src_path = pathlib.Path('vendor/PTxPlay/PTxPlay.asm')
 dst_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else pathlib.Path('build/PTxPlay.asm')
 dst_path.parent.mkdir(parents=True, exist_ok=True)
 
+# arg 3: PT3-only build. The tracker is PT3-only and builds its own PTxPlay, so
+# it can compile out the PT2/PT1 init + pattern decoder (gated by PT3Only in the
+# vendor asm) and turn off LoopChecker (only the player reads the loop bit). The
+# player passes no arg3, so it keeps full PT1/PT2/PT3 support + LoopChecker.
+pt3only = len(sys.argv) > 3 and sys.argv[3].strip() not in ('', '0', 'false', 'False')
+
 raw = src_path.read_text(encoding='latin1')
 lines = raw.split('\n')
 
@@ -79,10 +85,15 @@ prelude = [
                             # current position-list index; we read it from
                             # the editor to highlight the playing pattern.
     'ACBBAC        EQU 0',
-    'LoopChecker   EQU 1',  # PTxPlay sets bit 7 of SETUP each time the song
-                            # passes its loop point; we use that for auto-advance.
+    # LoopChecker: PTxPlay sets bit 7 of SETUP each time the song passes its loop
+    # point. Only the standalone player reads it (auto-advance); the tracker uses
+    # CurPos instead, so the PT3-only build switches it off to save bytes.
+    f'LoopChecker   EQU {0 if pt3only else 1}',
     'Id            EQU 0',
     'Release       EQU 1',
+    # PT3Only: when 1, the vendor asm compiles out the PT2/PT1 init + pattern
+    # decoder (the tracker never plays PT2). The player builds with PT3Only=0.
+    f'PT3Only       EQU {1 if pt3only else 0}',
     '',
     f'    ORG ${origin_hex}        ; final runtime address; the .bin is position-dependent',
     '                     ; (self-modifying) so this must match the LOAD address.',
