@@ -40,19 +40,22 @@ Tape compatibility:
 
 ## Quick start
 
-If you just want to try it without setting up the toolchain, grab the
-prebuilt tapes from [`release/`](release/) — `pt3-player.tap` (the
-player) and `songs.tap` (six bundled chiptunes), or the bundled
-[`ts-tracker.zip`](release/ts-tracker.zip) with both plus a quick-start
-README.
+If you just want to try it without setting up the toolchain, download the
+latest **`ts-tracker.zip`** from the
+[**Releases page**](https://github.com/factus10/TS-Tracker/releases/latest).
+It contains both apps (`tracker.tap` and `pt3-player.tap`), the sample songs
+(`songs.tap`), and the manual PDF. (The same prebuilt files are also kept in
+[`release/`](release/) in the repo.)
 
 To build from source, you need `z88dk` and `sjasmplus` on `PATH`. The
 Makefile exports `Z88DK_HOME` and `ZCCCFG` itself, so a fresh shell
 works.
 
 ```sh
+make tracker           # build/tracker.tap     (the editor)
 make pt3-player        # build/pt3-player.tap  (the player)
 make songs-tape        # build/songs.tap       (every song in songs/, one per CODE block)
+make release           # release/ts-tracker.zip (all of the above + the manual)
 ```
 
 Drop your own `.pt2` / `.pt3` files in `songs/` first and re-run
