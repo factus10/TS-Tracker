@@ -7,11 +7,16 @@ that shape it. Read this before changing the song-data path or the memory map.
 
 - **`pt3-player`** (`src/pt3_player.c`) — playback-only picker. Shipped, stable.
 - **`tracker`** (`src/tracker.c`) — the pattern editor.
-- Both link **`src/pt_engine.[ch]`**: thin asm wrappers around the PTxPlay
-  (Bulba) driver — `PTx_init / PTx_play / PTx_mute / silence_channel` — plus the
-  AY-mute helper and the 60→50 Hz tempo divider (`pt_play_60to50`). PTxPlay
-  itself is assembled to `build/ptxplay.bin` and shipped as a separate CODE
-  block on the tape, loaded at `PTX_ORIGIN_HEX`.
+- Both link two shared modules:
+  - **`src/pt_engine.[ch]`** — thin asm wrappers around the PTxPlay (Bulba)
+    driver (`PTx_init / PTx_play / PTx_mute / silence_channel`), the AY-mute
+    helper and the 60→50 Hz tempo divider (`pt_play_60to50`).
+  - **`src/ts_io.[ch]`** — screen + keyboard primitives (`putch`, `puts_str`,
+    `at`, `set_attr`, `set_inverse`, `set_border`, `read_row`, `key_space/
+    enter/break/digit/any`). App-specific bits (`cls`, `draw_banner`/`status`,
+    per-app command keys) stay local.
+  PTxPlay itself is assembled to a flat binary and shipped as a separate CODE
+  block on the tape; each app builds its own at its own origin (see Memory map).
 
 ## Song data model (the important part)
 
