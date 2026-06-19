@@ -319,6 +319,8 @@ static unsigned char key_R(void)     { return read_row(0xFB) & 0x08; }
    are note keys in the editor, so Save/Help can't sit on them. */
 static unsigned char key_W(void)     { return read_row(0xFB) & 0x02; }
 static unsigned char key_K(void)     { return read_row(0xBF) & 0x04; }
+/* E = open the instrument (sample) editor. Row $FB bit 2; not on the piano. */
+static unsigned char key_E(void)     { return read_row(0xFB) & 0x04; }
 /* TS2068 BREAK = CAPS-SHIFT (row $FE bit 0) + SPACE (row $7F bit 0). */
 static unsigned char key_break(void) {
     return (read_row(0xFE) & 0x01) && (read_row(0x7F) & 0x01);
@@ -2068,6 +2070,62 @@ static void show_help_page(void)
     while (key_any()) intrinsic_halt();
 }
 
+/* ---- Instrument (sample) editor ------------------------------------------
+   Reached via E from the pattern view. Samples are the PT3 "instruments" --
+   a per-frame envelope that gives a note its timbre. They live in the song
+   slot below base_pat_off (preserved across rebuilds) in native format:
+   pointer table at song[105+N*2] (N=0..31, offset relative to song start),
+   each block = [loop, length] then `length` lines of 4 bytes. Per line,
+   read as bytes b0..b3: b1 bits0-3 = volume; b2|b3<<8 = signed tone offset;
+   the rest are mixer/slide/accumulate flags (see PTxPlay CHREGS). This v1 is
+   a read-only inspector showing the raw bytes plus decoded Vol/Tone; O/P pick
+   the sample. (Editing/resize lands in the next increment.) */
+static unsigned char cur_sample_edit = 1;     /* sample shown by the editor */
+
+static void show_sample_editor(void)
+{
+    const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
+    unsigned char sel = cur_sample_edit;
+
+    for (;;) {
+        unsigned int  off  = song[105 + sel * 2] | ((unsigned int)song[106 + sel * 2] << 8);
+        unsigned char loop = song[off];
+        unsigned char len  = song[off + 1];
+        unsigned char i;
+
+        cls();
+        draw_banner();
+        draw_status(1, "-- Sample editor --");
+        at(3, 0); puts_str("Sample "); put_hex2(sel);
+                  puts_str("  loop "); put_hex2(loop);
+                  puts_str(" len "); put_hex2(len);
+        at(5, 0); puts_str("LN b0 b1 b2 b3  Vl Tone");
+        for (i = 0; i < len && i < 14; i++) {
+            unsigned int  lo = off + 2 + (unsigned int)i * 4;
+            unsigned char b1 = song[lo + 1];
+            signed int    tone = (signed int)(song[lo + 2] | ((unsigned int)song[lo + 3] << 8));
+            at(6 + i, 0);
+            put_hex2(i); putch(' ');
+            put_hex2(song[lo]);     putch(' ');
+            put_hex2(b1);           putch(' ');
+            put_hex2(song[lo + 2]); putch(' ');
+            put_hex2(song[lo + 3]); puts_str("  ");
+            put_hex1(b1 & 0x0F);    putch(' ');
+            if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
+            put_dec5_right((unsigned int)tone);
+        }
+        at(21, 0); puts_str("O/P=sample  Q=back");
+
+        while (key_O() || key_P() || key_Q() || key_break()) intrinsic_halt();
+        for (;;) {
+            intrinsic_halt();
+            if (key_Q() || key_break()) { cur_sample_edit = sel; return; }
+            if (key_P() && sel < 31) { sel++; while (key_P()) intrinsic_halt(); break; }
+            if (key_O() && sel > 0)  { sel--; while (key_O()) intrinsic_halt(); break; }
+        }
+    }
+}
+
 static void show_pattern(unsigned char idx)
 {
     unsigned char num_pat = num_pat_total;
@@ -2105,7 +2163,7 @@ static void show_pattern(unsigned char idx)
 
     while (nav_up() || nav_down() || nav_left() || nav_right()
         || key_O() || key_P() || key_Q() || key_enter() || key_R()
-        || key_K() || key_W() || key_U() || key_I() || key_delete())
+        || key_K() || key_E() || key_W() || key_U() || key_I() || key_delete())
         intrinsic_halt();
 
     for (;;) {
@@ -2318,6 +2376,11 @@ static void show_pattern(unsigned char idx)
         else if (key_K()) {
             while (key_K()) intrinsic_halt();
             show_help_page();
+            repaint_pattern_view(idx, pat, num_pat, top, cursor, cursor_ch, octave);
+        }
+        else if (key_E()) {
+            while (key_E()) intrinsic_halt();
+            show_sample_editor();
             repaint_pattern_view(idx, pat, num_pat, top, cursor, cursor_ch, octave);
         }
         else if (key_enter()) {
