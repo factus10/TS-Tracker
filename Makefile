@@ -32,13 +32,20 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # more code room; the song slot shrank 6.4KB->5.5KB to fund it. The slot
 # still holds the largest bundled song (song_04, 5464 B), so the player is
 # unaffected. PTxPlay.bin is 2622 B; the DAC0->E500 gap (2624 B) just fits it.
+# The tracker runs at DAC0/E500 (its editor needs the code room). The player
+# is decoupled and keeps the original D700/E200 map so it isn't penalised with
+# a smaller song slot it doesn't need -- each app builds its own PTxPlay at its
+# own origin (see the per-app pipelines below).
 PTX_ORIGIN_HEX     ?= DAC0
 TAPE_SONG_BASE_HEX ?= E500
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
+PLAYER_PTX_ORIGIN_HEX ?= D700
+PLAYER_SONG_BASE_HEX  ?= E200
+PLAYER_PTX_ORIGIN_DEC := $(shell printf '%d' 0x$(PLAYER_PTX_ORIGIN_HEX))
 
-CFLAGS   = $(TARGET) $(COMPILER) $(CLIB) $(OPT) -DTS2068 \
-           -DTAPE_SONG_BASE=0x$(TAPE_SONG_BASE_HEX) -Isrc -Ibuild
+# TAPE_SONG_BASE is set per-app (player vs tracker), not here, since they differ.
+CFLAGS   = $(TARGET) $(COMPILER) $(CLIB) $(OPT) -DTS2068 -Isrc -Ibuild
 
 BUILDDIR = build
 SRCDIR   = src
@@ -64,7 +71,7 @@ SONGS_DIR     ?= songs
 SONGS         := $(sort $(wildcard $(SONGS_DIR)/*.pt2) $(wildcard $(SONGS_DIR)/*.pt3))
 LOW_SONG_CAP  ?= 8192         # 8 KB embedded in main C binary
 HIGH_SONG_CAP ?= 14336        # 14 KB above PTxPlay (TAPE_SONG_BASE..~$FB00)
-HIGH_SONG_BASE := $(TAPE_SONG_BASE_HEX)
+HIGH_SONG_BASE := $(PLAYER_SONG_BASE_HEX)
 
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
@@ -114,6 +121,20 @@ $(BUILDDIR)/ptxplay_addrs.h: $(BUILDDIR)/ptxplay.sym tools/bin_to_c.py
 	python3 tools/bin_to_c.py $(BUILDDIR)/ptxplay.sym \
 	    $(BUILDDIR)/ptxplay_addrs.h START SETUP MUTE INIT PLAY VARSEND AYREGS DelyCnt CurPos
 
+# Player's own PTxPlay at PLAYER_PTX_ORIGIN_HEX, built into build/player/ so it
+# keeps the original (larger) song slot independent of the tracker's higher map.
+$(BUILDDIR)/player/PTxPlay.asm: vendor/PTxPlay/PTxPlay.asm tools/build_ptxplay_asm.py \
+                                $(MAKEFILE_LIST) | $(BUILDDIR)
+	@mkdir -p $(BUILDDIR)/player
+	python3 tools/build_ptxplay_asm.py $(PLAYER_PTX_ORIGIN_HEX) $(BUILDDIR)/player/PTxPlay.asm
+
+$(BUILDDIR)/player/ptxplay.bin $(BUILDDIR)/player/ptxplay.sym: $(BUILDDIR)/player/PTxPlay.asm
+	cd $(BUILDDIR)/player && sjasmplus PTxPlay.asm --raw=ptxplay.bin --sym=ptxplay.sym
+
+$(BUILDDIR)/player/ptxplay_addrs.h: $(BUILDDIR)/player/ptxplay.sym tools/bin_to_c.py
+	python3 tools/bin_to_c.py $(BUILDDIR)/player/ptxplay.sym \
+	    $(BUILDDIR)/player/ptxplay_addrs.h START SETUP MUTE INIT PLAY VARSEND AYREGS DelyCnt CurPos
+
 # ---- pt3-player (universal PT2/PT3 picker) ----------------------------------
 pt3-player: $(BUILDDIR)/pt3-player.tap
 
@@ -136,10 +157,10 @@ $(BUILDDIR)/songs.stamp: $(MAKEFILE_LIST) tools/build_song_bundle.py | $(BUILDDI
 $(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_high.bin: $(BUILDDIR)/songs.stamp ;
 
 $(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) \
-                                  $(BUILDDIR)/ptxplay_addrs.h \
+                                  $(BUILDDIR)/player/ptxplay_addrs.h \
                                   $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h \
                                   | $(BUILDDIR)
-	$(ZCC) $(CFLAGS) \
+	$(ZCC) -I$(BUILDDIR)/player $(CFLAGS) -DTAPE_SONG_BASE=0x$(PLAYER_SONG_BASE_HEX) \
 	    $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) \
 	    -o $(BUILDDIR)/pt3-player-base \
 	    -create-app
@@ -155,20 +176,20 @@ $(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS
 # high song bundle. Each call to append_code_block.py adds one block and
 # inserts a matching `LOAD ""CODE` clause into the BASIC loader, so the
 # final tape has three LOAD ""CODE statements running in sequence.
-$(BUILDDIR)/pt3-player-stage1.tap: $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/ptxplay.bin tools/append_code_block.py
+$(BUILDDIR)/pt3-player-stage1.tap: $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/player/ptxplay.bin tools/append_code_block.py
 	python3 tools/append_code_block.py \
 	    $(BUILDDIR)/pt3-player-base.tap \
-	    $(BUILDDIR)/ptxplay.bin \
-	    $(PTX_ORIGIN_DEC) ptxplay \
+	    $(BUILDDIR)/player/ptxplay.bin \
+	    $(PLAYER_PTX_ORIGIN_DEC) ptxplay \
 	    $(BUILDDIR)/pt3-player-stage1.tap
 
 $(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap
-	@# Sanity-check: the C binary's CODE block must end below PTX_ORIGIN
+	@# Sanity-check: the C binary's CODE block must end below PTxPlay's origin
 	@# (where PTxPlay loads), otherwise CODE 2 silently overwrites CODE 1.
 	@end=$$(python3 -c "import os; print(0x8000 + os.path.getsize('$(BUILDDIR)/pt3-player-base_CODE.bin'))"); \
-	if [ $$end -gt $(PTX_ORIGIN_DEC) ]; then \
-	    printf "ERROR: pt3-player C binary ends at \$$%X, overlaps PTxPlay at \$$$(PTX_ORIGIN_HEX).\n" $$end >&2; \
-	    printf "       Bump PTX_ORIGIN_HEX in the Makefile or shrink the program.\n" >&2; \
+	if [ $$end -gt $(PLAYER_PTX_ORIGIN_DEC) ]; then \
+	    printf "ERROR: pt3-player C binary ends at \$$%X, overlaps PTxPlay at \$$$(PLAYER_PTX_ORIGIN_HEX).\n" $$end >&2; \
+	    printf "       Bump PLAYER_PTX_ORIGIN_HEX in the Makefile or shrink the program.\n" >&2; \
 	    exit 1; \
 	fi
 	cp $(BUILDDIR)/pt3-player-stage1.tap $(BUILDDIR)/pt3-player.tap
@@ -182,7 +203,7 @@ $(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) \
                               $(BUILDDIR)/ptxplay_addrs.h \
                               $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h \
                               | $(BUILDDIR)
-	$(ZCC) $(CFLAGS) \
+	$(ZCC) $(CFLAGS) -DTAPE_SONG_BASE=0x$(TAPE_SONG_BASE_HEX) \
 	    $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) \
 	    -o $(BUILDDIR)/tracker-base \
 	    -create-app

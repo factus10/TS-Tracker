@@ -21,7 +21,9 @@ if not re.fullmatch(r'[0-9A-F]{4}', origin_hex):
     sys.exit(f'bad origin hex {origin_hex!r}: want a 4-char hex string')
 
 src_path = pathlib.Path('vendor/PTxPlay/PTxPlay.asm')
-dst_path = pathlib.Path('build/PTxPlay.asm')
+# Output path is overridable (arg 2) so the player and tracker can each build
+# a PTxPlay at their own origin into separate files.
+dst_path = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 else pathlib.Path('build/PTxPlay.asm')
 dst_path.parent.mkdir(parents=True, exist_ok=True)
 
 raw = src_path.read_text(encoding='latin1')
