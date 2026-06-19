@@ -84,11 +84,13 @@ The 64K is essentially full. Single source of truth for the constants is the
 | PT3 song slot | `$E500–~$FAFF` | `SONG_BUDGET` = `$FB00−$E500` = 5632 B |
 | Stack / ROM tape buffers | `$FB00+` | reserved |
 
-`PTX_ORIGIN` was raised `$D700→$DAC0` (and `TAPE_SONG_BASE` `$E200→$E500`) to
-give the instrument editor code room; the song slot shrank 6400→5632 B but
-still holds the largest bundled song (5464 B), so the player is unaffected.
-`ptxplay_addrs.h` regenerates from the origin, so only the two Makefile
-constants move.
+The table above is the **tracker's** map: `PTX_ORIGIN` was raised `$D700→$DAC0`
+(and `TAPE_SONG_BASE` `$E200→$E500`) to give the instrument editor code room,
+shrinking its song slot to 5632 B. The **player is decoupled** — it keeps the
+original `$D700`/`$E200` (full 6400 B slot, ~13 KB code headroom it doesn't
+need). Each app builds its own PTxPlay at its own origin (the player's into
+`build/player/`, via `-Ibuild/player`); `ptxplay_addrs.h` regenerates per
+origin and `TAPE_SONG_BASE` is a per-app `-D`. See the Makefile pipelines.
 
 ## Instrument editor (samples + ornaments)
 
