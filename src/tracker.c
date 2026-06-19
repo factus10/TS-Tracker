@@ -13,18 +13,7 @@
 #include "ay_ts2068.h"
 #include "pt_engine.h"      /* PTx_*, silence_channel, pt_play_60to50, PTx_setup */
 #include "ptxplay_addrs.h"  /* CurPos_ADDR (used directly by play_song_full) */
-
-/* Set the TS2068 border colour (bits 0-2 of port $FE). */
-static void set_border(unsigned char c) __naked __z88dk_fastcall
-{
-    (void)c;
-__asm
-    ld   a,l
-    and  #0x07
-    out  (#0xFE),a
-    ret
-__endasm;
-}
+#include "ts_io.h"          /* putch/at/read_row/key_* and friends (shared) */
 
 /* ---- Tape loading ----------------------------------------------------------
    The TS2068 keeps its tape routines in the EXROM, which we have to page in
@@ -239,34 +228,7 @@ struct dir_entry {
 static struct dir_entry directory[DIR_MAX];
 static unsigned char    dir_count;
 
-/* ---- ROM character output (RST $10 = PRINT-A, identical on ZX48/TS2068) ---- */
-
-static void putch(unsigned char c) __naked __z88dk_fastcall
-{
-    (void)c;
-__asm
-    ld   a,l
-    rst  #0x10
-    ret
-__endasm;
-}
-
-static void puts_str(const char *s)
-{
-    while (*s) putch((unsigned char)*s++);
-}
-
-static void puts_str_n(const char *s, unsigned char n)
-{
-    while (*s && n--) putch((unsigned char)*s++);
-}
-
-static void at(unsigned char row, unsigned char col)
-{
-    putch(0x16);
-    putch(row);
-    putch(col);
-}
+/* putch / puts_str / puts_str_n / at live in ts_io.c (shared with the player). */
 
 static void cls(void)
 {
@@ -288,25 +250,8 @@ static void cls(void)
     at(0, 0);
 }
 
-/* ---- keyboard polling ------------------------------------------------------- */
+/* ---- keyboard polling (read_row, key_space/enter/break/digit/any in ts_io.c) */
 
-static unsigned char read_row(unsigned char rowsel) __naked __z88dk_fastcall
-{
-    (void)rowsel;
-__asm
-    ld   a,l
-    ld   c,#0xFE
-    ld   b,a
-    in   a,(c)
-    cpl
-    and  #0x1F
-    ld   l,a
-    ret
-__endasm;
-}
-
-static unsigned char key_space(void) { return read_row(0x7F) & 0x01; }
-static unsigned char key_enter(void) { return read_row(0xBF) & 0x01; }
 /* Row $BF = ENTER L K J H ; bit 1 = L. */
 static unsigned char key_L(void)     { return read_row(0xBF) & 0x02; }
 /* Row $FD = A S D F G ; bit 0 = A, bit 1 = S. */
@@ -321,10 +266,6 @@ static unsigned char key_W(void)     { return read_row(0xFB) & 0x02; }
 static unsigned char key_K(void)     { return read_row(0xBF) & 0x04; }
 /* E = open the instrument (sample) editor. Row $FB bit 2; not on the piano. */
 static unsigned char key_E(void)     { return read_row(0xFB) & 0x04; }
-/* TS2068 BREAK = CAPS-SHIFT (row $FE bit 0) + SPACE (row $7F bit 0). */
-static unsigned char key_break(void) {
-    return (read_row(0xFE) & 0x01) && (read_row(0x7F) & 0x01);
-}
 
 /* Sinclair cursor keys: CAPS-SHIFT + 5/6/7/8 = LEFT / DOWN / UP / RIGHT.
    '5' is on row $F7 bit 4; '6' '7' '8' are on row $EF bits 4/3/2. */
@@ -367,26 +308,7 @@ static unsigned char nav_left(void)  { return key_left()  || joy_left();  }
 static unsigned char nav_right(void) { return key_right() || joy_right(); }
 static unsigned char nav_fire(void)  { return key_space() || joy_fire();  }
 
-/* Sinclair keyboard matrix:
-     row $F7: 1, 2, 3, 4, 5  (bits 0..4)
-     row $EF: 0, 9, 8, 7, 6  (bits 0..4)
-   Some ZX/TS-2068 references mislabel the second row as $FB; $FB is
-   actually Q-W-E-R-T. Reading the wrong row makes 6-9 silently dead. */
-static unsigned char key_digit(void)
-{
-    unsigned char a = read_row(0xF7);
-    unsigned char b = read_row(0xEF);
-    if (a & 0x01) return 1;
-    if (a & 0x02) return 2;
-    if (a & 0x04) return 3;
-    if (a & 0x08) return 4;
-    if (a & 0x10) return 5;
-    if (b & 0x10) return 6;
-    if (b & 0x08) return 7;
-    if (b & 0x04) return 8;
-    if (b & 0x02) return 9;
-    return 0;
-}
+/* key_digit lives in ts_io.c (shared). */
 
 /* ---- screen helpers --------------------------------------------------------- */
 
@@ -396,19 +318,7 @@ static void put_dec(unsigned char n)
     putch('0' + n);
 }
 
-/* Set the next-print colour state. ROM PRINT honours INK ($10), PAPER ($11),
-   BRIGHT ($13), and INVERSE ($14) control codes inline in the byte stream. */
-static void set_attr(unsigned char ink, unsigned char paper, unsigned char bright)
-{
-    putch(0x10); putch(ink);
-    putch(0x11); putch(paper);
-    putch(0x13); putch(bright);
-}
-
-static void set_inverse(unsigned char on)
-{
-    putch(0x14); putch(on);
-}
+/* set_attr / set_inverse live in ts_io.c (shared). */
 
 /* Draw the nofile.tap-style banner at row 0:
      " TIMEX " in cyan-on-black, a bright white band centred on the project
@@ -455,12 +365,6 @@ static void draw_menu_item(unsigned char row, char hotkey, const char *label)
     set_inverse(0);
     puts_str(label);
 }
-
-/* Forward decl: key_any is defined later (down with the keyboard helpers
-   that need it). show_splash needs it now, and without a prototype SDCC
-   would assume `int key_any()` -- the real function returns the result
-   in L with H undefined, which corrupts the boolean check. */
-static unsigned char key_any(void);
 
 /* Boot splash. Drawn once on startup, dismisses on any key. Reuses the
    TIMEX banner and the white-on-red status bar so it looks like a member
@@ -1265,20 +1169,7 @@ static unsigned char key_H(void) { return read_row(0xBF) & 0x10; }
 static unsigned char key_I(void) { return read_row(0xDF) & 0x04; }
 static unsigned char key_U(void) { return read_row(0xDF) & 0x08; }
 
-/* Returns nonzero if any key on the keyboard is pressed. Used for "press
-   any key to continue" prompts after modal screens. */
-static unsigned char key_any(void)
-{
-    if (read_row(0xFE)) return 1;
-    if (read_row(0xFD)) return 1;
-    if (read_row(0xFB)) return 1;
-    if (read_row(0xF7)) return 1;
-    if (read_row(0xEF)) return 1;
-    if (read_row(0xDF)) return 1;
-    if (read_row(0xBF)) return 1;
-    if (read_row(0x7F)) return 1;
-    return 0;
-}
+/* key_any lives in ts_io.c (shared). */
 
 /* Read a hex-digit key (0..F) and return its value, or -1 if no hex key
    is pressed. Skips when CAPS-SHIFT is held so cursor-key chords (CAPS+5

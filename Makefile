@@ -57,6 +57,10 @@ AY_SRCS    = $(SRCDIR)/ay_ts2068.c
 # copies.
 ENGINE_SRCS = $(SRCDIR)/pt_engine.c
 
+# Shared screen + keyboard primitives (putch/at/read_row/key_* ...). Both apps
+# link this instead of carrying byte-identical copies.
+IO_SRCS = $(SRCDIR)/ts_io.c
+
 # Single-song MVP still uses mvac7's C-only PT3 player.
 PT3_SRCS   = $(SRCDIR)/PT3player.c $(AY_SRCS)
 
@@ -156,12 +160,12 @@ $(BUILDDIR)/songs.stamp: $(MAKEFILE_LIST) tools/build_song_bundle.py | $(BUILDDI
 
 $(BUILDDIR)/song_bundle.c $(BUILDDIR)/songs_high.bin: $(BUILDDIR)/songs.stamp ;
 
-$(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) \
+$(BUILDDIR)/pt3-player-base.tap: $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) $(IO_SRCS) \
                                   $(BUILDDIR)/player/ptxplay_addrs.h \
-                                  $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h \
+                                  $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h $(SRCDIR)/ts_io.h \
                                   | $(BUILDDIR)
 	$(ZCC) -I$(BUILDDIR)/player $(CFLAGS) -DTAPE_SONG_BASE=0x$(PLAYER_SONG_BASE_HEX) \
-	    $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) \
+	    $(SRCDIR)/pt3_player.c $(AY_SRCS) $(ENGINE_SRCS) $(IO_SRCS) \
 	    -o $(BUILDDIR)/pt3-player-base \
 	    -create-app
 	mv $(BUILDDIR)/pt3-player-base.tap $(BUILDDIR)/pt3-player-base.tap.tmp || true
@@ -199,12 +203,12 @@ $(BUILDDIR)/pt3-player.tap: $(BUILDDIR)/pt3-player-stage1.tap
 # main + screens. Builds an independent build/tracker.tap.
 tracker: $(BUILDDIR)/tracker.tap
 
-$(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) \
+$(BUILDDIR)/tracker-base.tap: $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) $(IO_SRCS) \
                               $(BUILDDIR)/ptxplay_addrs.h \
-                              $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h \
+                              $(SRCDIR)/ay_ts2068.h $(SRCDIR)/pt_engine.h $(SRCDIR)/ts_io.h \
                               | $(BUILDDIR)
 	$(ZCC) $(CFLAGS) -DTAPE_SONG_BASE=0x$(TAPE_SONG_BASE_HEX) \
-	    $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) \
+	    $(SRCDIR)/tracker.c $(AY_SRCS) $(ENGINE_SRCS) $(IO_SRCS) \
 	    -o $(BUILDDIR)/tracker-base \
 	    -create-app
 
