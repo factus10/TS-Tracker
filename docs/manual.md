@@ -248,6 +248,76 @@ decoded **volume** and **tone** offset alongside.
 To use an instrument, set a note's sample (`U`-`Smp`) or ornament (`U`-`Orn`)
 number, then `A` to hear it.
 
+# How instruments make sound
+
+This is the part that takes a moment to click, so it's worth a page.
+
+The AY sound chip is told what to do **50 times a second**. A PT3 song does
+*not* store those chip settings directly. Instead, every frame the player
+works them out fresh, per channel, from three things: the **note** you placed,
+the current line of its **sample**, and the current line of its **ornament**.
+So you never program the chip directly --- you design the sample and ornament
+tables, and the player "performs" them.
+
+Picture a **sample as a strip of frames** --- one line per 1/50th second ---
+that the chip steps through and then loops. Each line says, for that instant:
+how loud, how far to bend the pitch, and whether tone / noise / the hardware
+envelope are sounding. A short looping strip of those is what gives a note its
+*character* --- a sharp pluck, a steady organ, a noisy hit.
+
+An **ornament** is the same idea for **pitch**: a strip of semitone offsets,
+one per frame, added to the note. It only moves pitch, not timbre.
+
+## Reading the columns
+
+- **len** --- how many lines (frames) the instrument has. **loop** --- the
+  line it jumps back to after the last, so it repeats forever from there.
+  (Sustain by looping on a steady line; "play once then go quiet" by looping
+  on a silent line.)
+- **LN** --- the line (frame) number.
+- **Vl** --- the **volume** for that frame, `0` (silent) to `F` (loudest).
+  This is the column you'll use most: the shape of `Vl` down the lines *is* the
+  volume envelope.
+- **Tone** --- a **pitch offset** for that frame (`0` = none). Small
+  alternating values make vibrato; a steady ramp makes a pitch bend.
+- **b0 b1 b2 b3** --- the raw four bytes. `Vl` lives in `b1` and `Tone` in
+  `b2`/`b3`; the other bits in `b0`/`b1` are the on/off switches (tone, noise,
+  the hardware envelope) and slide flags. The editor shows them as hex because
+  there isn't a friendly toggle for them yet --- see *Percussion* below.
+
+## Making different sounds
+
+Most instruments are just a **volume envelope** (the shape of `Vl` over the
+lines) plus maybe a little `Tone` movement:
+
+- **Organ / sustained** --- several lines all at a steady `Vl` (say `F`), with
+  **loop** on a line that holds. The note rings until the next note.
+- **Plucked / decay** --- `Vl` starts high and falls, e.g. `F C 9 6 3 0`; loop
+  the last (silent) line so it stays quiet. Short + sharp = a blip; longer =
+  a mellow pluck.
+- **Bass** --- a low note with a steady mid `Vl`, kept short and looping.
+- **Vibrato** --- hold `Vl` steady and put small alternating `Tone` values on
+  successive lines (e.g. `+8`, `0`, `-8`, `0` …).
+- **Chords / arpeggios** --- this is an **ornament**, not a sample. An ornament
+  of `0, 4, 7` looping every three frames turns one held note into a major
+  chord shimmer (the classic chiptune sound); `0, 3, 7` = minor, `0, 12` =
+  octave. Assign it to a note with `U`-`Orn`.
+- **Percussion / snare / hi-hat** --- these need **noise** instead of (or as
+  well as) tone, plus a fast `Vl` decay. Turning noise on is one of the on/off
+  bits packed into `b0`/`b1`, which today you set as a raw hex value rather
+  than a friendly switch --- so noise sounds are currently an advanced,
+  edit-the-bytes affair. (A future build may add Tone/Noise/Env toggle columns
+  to make this a one-key thing.)
+
+## Where it goes
+
+Each frame the player turns this data into the AY's registers: note + ornament
+set the channel's **pitch**; the sample's `Tone` is added to that pitch; `Vl`
+becomes the channel **volume**; the tone/noise switches set the chip's
+**mixer**; and the envelope flag routes the channel through the AY's hardware
+**envelope**. All of it is stored inside the song file (the sample and ornament
+tables), so it travels with the tune when you save.
+
 # Hearing your work
 
 You don't need to leave the editor to listen:
