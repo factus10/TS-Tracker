@@ -1978,14 +1978,80 @@ static void se_hex2(unsigned char v, unsigned char hl)
 }
 
 /* Field cursor `fc`: 0 = loop, 1 = length, 2+ = line (fc-2)/lsz byte (fc-2)%lsz. */
+/* Render one instrument line at row 6+i, FIXED WIDTH so it can be repainted in
+   place without a cls (incremental redraw). `fc` decides which raw-hex cell on
+   the line carries the inverse field cursor. */
+static void se_draw_line(unsigned char kind, unsigned int off, unsigned char i,
+                         unsigned char fc)
+{
+    const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
+    unsigned char lsz = (unsigned char)SE_LSZ(kind);
+    unsigned int  lo  = off + 2 + (unsigned int)i * lsz;
+    unsigned char fb  = (unsigned char)(2 + i * lsz);
+    at((unsigned char)(6 + i), 0);
+    put_hex2(i); putch(' ');
+    if (kind) {
+        signed int v = (signed char)song[lo];
+        se_hex2(song[lo], fc == fb); puts_str("   ");
+        if (v < 0) { putch('-'); v = -v; } else putch('+');
+        put_dec5_right((unsigned int)v);
+    } else {
+        unsigned char b1 = song[lo + 1];
+        signed int    tone = (signed int)(song[lo + 2] | ((unsigned int)song[lo + 3] << 8));
+        se_hex2(song[lo],     fc == fb);     putch(' ');
+        se_hex2(b1,           fc == fb + 1); putch(' ');
+        se_hex2(song[lo + 2], fc == fb + 2); putch(' ');
+        se_hex2(song[lo + 3], fc == fb + 3); puts_str("  ");
+        put_hex1(b1 & 0x0F); putch(' ');
+        if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
+        put_dec5_right((unsigned int)tone);
+        /* tone/noise are active-low DISABLE bits in b1 (mixer); show the channel
+           as ON (letter) when the bit is clear. E = hardware envelope enable
+           (b0 bit0, also active-low). */
+        putch(' ');
+        putch((b1 & 0x10) ? '-' : 'T');
+        putch((b1 & 0x80) ? '-' : 'N');
+        putch((song[lo] & 0x01) ? '-' : 'E');
+        /* Ns = per-line noise pitch (b0 bits1-5, added to the master noise base
+           which defaults to 0). "--" when this line's noise is muted. Always two
+           chars so the in-place repaint leaves no stale digit. */
+        putch(' ');
+        if (b1 & 0x80) { putch('-'); putch('-'); }
+        else {
+            unsigned char p = (unsigned char)((song[lo] >> 1) & 0x1F);
+            if (p >= 10) { putch('0' + p / 10); putch('0' + p % 10); }
+            else { putch(' '); putch('0' + p); }
+        }
+    }
+}
+
+/* Repaint just one field's raw-hex cell with/without the inverse cursor, so a
+   field-cursor MOVE touches only the two affected cells (no full redraw). The
+   loop/len columns differ between the "Sample"/"Ornament" row-3 labels. */
+static void se_field_hex(unsigned char kind, unsigned int off, unsigned char f,
+                         unsigned char hl)
+{
+    const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
+    unsigned char lsz = (unsigned char)SE_LSZ(kind);
+    if (f == 0)      { at(3, (unsigned char)(kind ? 18 : 16)); se_hex2(song[off],     hl); }
+    else if (f == 1) { at(3, (unsigned char)(kind ? 25 : 23)); se_hex2(song[off + 1], hl); }
+    else {
+        unsigned char ln = (unsigned char)((f - 2) / lsz);
+        unsigned char b  = (unsigned char)((f - 2) % lsz);
+        unsigned int  lo = off + 2 + (unsigned int)ln * lsz;
+        at((unsigned char)(6 + ln), (unsigned char)(3 + b * 3));
+        se_hex2(song[lo + b], hl);
+    }
+}
+
+/* Full redraw (cls + everything). Used on entry, sample change (O/P) and resize;
+   in-editor edits/moves repaint incrementally via se_draw_line / se_field_hex. */
 static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
 {
     const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
     unsigned int  tbl = SE_TBL(kind);
-    unsigned char lsz = (unsigned char)SE_LSZ(kind);
-    unsigned int  off  = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
-    unsigned char loop = song[off];
-    unsigned char len  = song[off + 1];
+    unsigned int  off = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
+    unsigned char len = song[off + 1];
     unsigned char i;
 
     cls();
@@ -1993,50 +2059,17 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
     draw_status(1, kind ? "-- Ornament editor --" : "-- Sample editor --");
     at_puts(3, 0, kind ? "Ornament " : "Sample ");
               put_hex2(sel);
-              puts_str("  loop "); se_hex2(loop, fc == 0);
-              puts_str(" len ");   se_hex2(len,  fc == 1);
+              puts_str("  loop "); se_hex2(song[off], fc == 0);
+              puts_str(" len ");   se_hex2(len,        fc == 1);
     at_puts(5, 0, kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone TNE Ns");
-    for (i = 0; i < len && i < SE_VIS_LINES; i++) {
-        unsigned int  lo = off + 2 + (unsigned int)i * lsz;
-        unsigned char fb = (unsigned char)(2 + i * lsz);
-        at(6 + i, 0);
-        put_hex2(i); putch(' ');
-        if (kind) {
-            signed int v = (signed char)song[lo];
-            se_hex2(song[lo], fc == fb); puts_str("   ");
-            if (v < 0) { putch('-'); v = -v; } else putch('+');
-            put_dec5_right((unsigned int)v);
-        } else {
-            unsigned char b1 = song[lo + 1];
-            signed int    tone = (signed int)(song[lo + 2] | ((unsigned int)song[lo + 3] << 8));
-            se_hex2(song[lo],     fc == fb);     putch(' ');
-            se_hex2(b1,           fc == fb + 1); putch(' ');
-            se_hex2(song[lo + 2], fc == fb + 2); putch(' ');
-            se_hex2(song[lo + 3], fc == fb + 3); puts_str("  ");
-            put_hex1(b1 & 0x0F); putch(' ');
-            if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
-            put_dec5_right((unsigned int)tone);
-            /* tone/noise are active-low DISABLE bits in b1 (mixer); show the
-               channel as ON (letter) when the bit is clear. E = hardware
-               envelope enable (b0 bit0, also active-low). */
-            putch(' ');
-            putch((b1 & 0x10) ? '-' : 'T');
-            putch((b1 & 0x80) ? '-' : 'N');
-            putch((song[lo] & 0x01) ? '-' : 'E');
-            /* Ns = per-line noise pitch (b0 bits1-5, added to the master noise
-               base which defaults to 0). Only audible when noise is on (N), so
-               show "--" when this line's noise is muted. */
-            putch(' ');
-            if (b1 & 0x80) { putch('-'); putch('-'); }
-            else put_dec((unsigned char)((song[lo] >> 1) & 0x1F));
-        }
-    }
+    for (i = 0; i < len && i < SE_VIS_LINES; i++)
+        se_draw_line(kind, off, i, fc);
     /* Keep all prints on rows <=21: rows 22-23 are the ROM's lower-screen
        channel and PRINT-AT there via RST $10 corrupts/resets. */
-    at(20, 0); puts_str(kind ? "SPACE=field  0-F=edit"
-                             : "SPC=fld 0-F=ed T/N=mix");
+    at(20, 0); puts_str(kind ? "C5/8=field 0-F=edit"
+                             : "C5/8=fld C7/6=Ns 0-F=hex");
     at_puts(21, 0, kind ? "O/P=sel  len:resize  Q=back"
-                        : "UP/DN=Ns O/P=sel len Q=bk");
+                        : "T/N=mix O/P=sel len Q=bk");
 }
 
 /* Resize (and, implicitly, fork to a private block) instrument `sel` of `kind`
@@ -2110,83 +2143,86 @@ static void show_instr_editor(unsigned char kind)
     unsigned char fc  = 0;
 
     if (sel > maxsel) sel = 1;
+    se_draw(kind, sel, fc);
+    while (read_hex_key() >= 0 || key_space() || key_O() || key_P()
+        || key_Q() || key_break()) intrinsic_halt();      /* drain the entry key */
+
     for (;;) {
-        const unsigned char *song = (const unsigned char *)TAPE_SONG_BASE;
-        unsigned int  off;
-        unsigned char len, vis, nf;
+        unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
+        unsigned int  off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
+        unsigned char len = w[off + 1];
+        unsigned char vis = (len < SE_VIS_LINES) ? len : SE_VIS_LINES;
+        unsigned char nf  = (unsigned char)(2 + vis * lsz);
+        unsigned char cl  = (fc >= 2) ? (unsigned char)((fc - 2) / lsz) : 0;
+        signed char   h;
+        intrinsic_halt();
 
-        se_draw(kind, sel, fc);
-        while (key_space() || key_O() || key_P() || key_Q() || key_break()
-            || read_hex_key() >= 0) intrinsic_halt();
+        if (key_Q() || key_break()) {
+            if (kind) cur_orn_edit = sel; else cur_sample_edit = sel;
+            return;
+        }
+        /* Sample change -> full redraw (whole instrument differs). */
+        if (key_O() && sel > 0)      { sel--; fc = 0; while (key_O()) intrinsic_halt(); se_draw(kind, sel, fc); continue; }
+        if (key_P() && sel < maxsel) { sel++; fc = 0; while (key_P()) intrinsic_halt(); se_draw(kind, sel, fc); continue; }
 
-        for (;;) {
-            signed char h;
-            intrinsic_halt();
-            off = song[tbl + sel * 2] | ((unsigned int)song[tbl + sel * 2 + 1] << 8);
-            len = song[off + 1];
-            vis = (len < SE_VIS_LINES) ? len : SE_VIS_LINES;
-            nf  = (unsigned char)(2 + vis * lsz);
-
-            if (key_Q() || key_break()) {
-                if (kind) cur_orn_edit = sel; else cur_sample_edit = sel;
-                return;
-            }
-            if (key_O() && sel > 0)      { sel--; fc = 0; while (key_O()) intrinsic_halt(); break; }
-            if (key_P() && sel < maxsel) { sel++; fc = 0; while (key_P()) intrinsic_halt(); break; }
-            if (key_space()) {
-                fc = (unsigned char)((fc + 1) % nf);
-                while (key_space()) intrinsic_halt();
-                break;
-            }
-            /* Samples: T / N toggle the tone / noise DISABLE bit (b1 bit4 /
-               bit7) on the line the cursor is in -- a one-key snare-vs-tone. */
-            if (!kind && (key_T() || key_N())) {
-                unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
-                /* samples only here, so lsz==4: shift instead of divide. */
-                unsigned char cl = (fc >= 2) ? (unsigned char)((fc - 2) >> 2) : 0;
-                unsigned char mask = key_T() ? 0x10 : 0x80;
+        /* Field cursor: SPACE / CAPS+right = next, CAPS+left = previous. Only the
+           two affected hex cells repaint -- no cls, no full redraw. */
+        if (key_space() || key_right() || key_left()) {
+            unsigned char nfc = key_left() ? (unsigned char)((fc + nf - 1) % nf)
+                                           : (unsigned char)((fc + 1) % nf);
+            se_field_hex(kind, off, fc, 0);
+            se_field_hex(kind, off, nfc, 1);
+            fc = nfc;
+            while (key_space() || key_left() || key_right()) intrinsic_halt();
+            continue;
+        }
+        /* Samples: T / N toggle the tone / noise DISABLE bit (b1 bit4 / bit7) on
+           the cursor's line -- a one-key snare-vs-tone. Repaints just that line. */
+        if (!kind && (key_T() || key_N())) {
+            unsigned char mask = key_T() ? 0x10 : 0x80;
+            instr_ensure_private(kind, sel);
+            off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
+            w[off + 2 + ((unsigned int)cl << 2) + 1] ^= mask;
+            se_draw_line(kind, off, cl, fc);
+            while (key_T() || key_N()) intrinsic_halt();
+            continue;
+        }
+        /* Samples: CAPS+up / CAPS+down nudge the cursor line's NOISE PITCH (b0
+           bits1-5, the offset added to the master noise base). Keeps bit0 (env)
+           and bits6-7 (amp-slide) untouched. Repaints just that line. */
+        if (!kind && fc >= 2 && (key_up() || key_down())) {
+            unsigned char up = key_up();
+            unsigned int  a;
+            unsigned char b0, p;
+            instr_ensure_private(kind, sel);
+            off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
+            a  = off + 2 + ((unsigned int)cl << 2);              /* b0 of line cl */
+            b0 = w[a];
+            p  = (unsigned char)((b0 >> 1) & 0x1F);
+            p  = up ? (unsigned char)((p + 1) & 0x1F)
+                    : (unsigned char)((p - 1) & 0x1F);
+            w[a] = (unsigned char)((b0 & 0xC1) | (p << 1));      /* bits1-5 */
+            se_draw_line(kind, off, cl, fc);
+            while (key_up() || key_down()) intrinsic_halt();
+            continue;
+        }
+        h = read_hex_key();
+        if (h >= 0) {
+            if (fc == 1) {
+                instr_resize(kind, sel, (unsigned char)(((len << 4) | (unsigned char)h)));
+                se_draw(kind, sel, fc);          /* resize changes the layout */
+            } else {
+                unsigned int addr;
                 instr_ensure_private(kind, sel);
                 off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
-                w[off + 2 + ((unsigned int)cl << 2) + 1] ^= mask;
-                while (key_T() || key_N()) intrinsic_halt();
-                break;
+                if (fc == 0) addr = off;
+                else addr = off + 2 + (unsigned int)((fc - 2) / lsz) * lsz + ((fc - 2) % lsz);
+                w[addr] = (unsigned char)((w[addr] << 4) | (unsigned char)h);
+                if (fc == 0) se_field_hex(kind, off, 0, 1);            /* loop: hex cell only */
+                else se_draw_line(kind, off, (unsigned char)((fc - 2) / lsz), fc);
             }
-            /* Samples: CAPS+up / CAPS+down nudge the cursor line's NOISE PITCH
-               (b0 bits1-5 = the offset added to the master noise base). Keeps
-               bit0 (env) and bits6-7 (amp-slide) untouched. */
-            if (!kind && fc >= 2 && (key_up() || key_down())) {
-                unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
-                unsigned char cl = (unsigned char)((fc - 2) >> 2);
-                unsigned char up = key_up();
-                unsigned int  a;
-                unsigned char b0, p;
-                instr_ensure_private(kind, sel);
-                off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
-                a  = off + 2 + ((unsigned int)cl << 2);          /* b0 of line cl */
-                b0 = w[a];
-                p  = (unsigned char)((b0 >> 1) & 0x1F);
-                p  = up ? (unsigned char)((p + 1) & 0x1F)
-                        : (unsigned char)((p - 1) & 0x1F);
-                w[a] = (unsigned char)((b0 & 0xC1) | (p << 1));  /* bits1-5 */
-                while (key_up() || key_down()) intrinsic_halt();
-                break;
-            }
-            h = read_hex_key();
-            if (h >= 0) {
-                if (fc == 1) {
-                    instr_resize(kind, sel, (unsigned char)(((len << 4) | (unsigned char)h)));
-                } else {
-                    unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
-                    unsigned int addr;
-                    instr_ensure_private(kind, sel);
-                    off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
-                    if (fc == 0) addr = off;
-                    else addr = off + 2 + (unsigned int)((fc - 2) / lsz) * lsz + ((fc - 2) % lsz);
-                    w[addr] = (unsigned char)((w[addr] << 4) | (unsigned char)h);
-                }
-                while (read_hex_key() >= 0) intrinsic_halt();
-                break;
-            }
+            while (read_hex_key() >= 0) intrinsic_halt();
+            continue;
         }
     }
 }
