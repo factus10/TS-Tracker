@@ -28,20 +28,20 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # either constant requires re-running the build; the overlap checks below
 # will fail loudly if the C binary outgrows PTX_ORIGIN.
 #
-# The tracker map was lowered DAC0/E500 -> CC00/D4F0 by the Phase 1 RAM
-# optimisations (see docs/optimization-review.md): the CRT diet (TRACKER_CRT,
-# below) trims ~3.5 KB of unused stdio/driver code and a PT3-only PTxPlay
-# (build_ptxplay_asm.py ... 1) trims ~347 B. The C image now ends ~$CBAF, so
-# PTX_ORIGIN drops to CC00 (~80 B guard) and -- with the 2275 B PT3-only PTxPlay
-# ending ~$D4E3 -- TAPE_SONG_BASE drops to D4F0. That grows the song slot from
-# 5632 B to ~9744 B (SONG_BUDGET = $FB00 - $D4F0), ~4.3 KB of headroom over the
-# largest bundled song (5464 B). NB the image size is mildly sensitive to
-# PTX_ORIGIN (its address feeds ptxplay_addrs.h, which is compiled in), so the
-# guard is generous; the overlap check below is the backstop. The player is
-# decoupled and keeps the original D700/E200 map + full PT1/PT2/PT3 PTxPlay --
-# each app builds its own PTxPlay at its own origin (see the per-app pipelines).
-PTX_ORIGIN_HEX     ?= CC00
-TAPE_SONG_BASE_HEX ?= D4F0
+# The Phase 1 RAM optimisations (docs/optimization-review.md) shrank the C image
+# ~3.5 KB via the CRT diet (TRACKER_CRT, below) + a PT3-only PTxPlay
+# (build_ptxplay_asm.py ... 1, 2275 B). That freed ~4 KB which now funds BOTH a
+# bigger song slot and the sound-editor overhaul: as new editor code grows the
+# image, PTX_ORIGIN/TAPE_SONG_BASE are nudged up (trading song-slot slack, which
+# is large -- the largest bundled song is only 5464 B). Currently the image ends
+# ~$CCE0; PTX_ORIGIN=CE00 (~290 B guard for in-progress editor work) and -- with
+# the 2275 B PTxPlay ending ~$D6E3 -- TAPE_SONG_BASE=D6F0, so SONG_BUDGET =
+# $FB00-$D6F0 = ~9232 B (~3.8 KB over the largest song). NB image size is mildly
+# sensitive to PTX_ORIGIN (its address feeds the compiled-in ptxplay_addrs.h), so
+# the guard is generous; the overlap check below is the backstop. The player is
+# decoupled and keeps the original D700/E200 map + full PT1/PT2/PT3 PTxPlay.
+PTX_ORIGIN_HEX     ?= CE00
+TAPE_SONG_BASE_HEX ?= D6F0
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
 PLAYER_PTX_ORIGIN_HEX ?= D700

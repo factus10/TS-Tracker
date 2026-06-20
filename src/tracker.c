@@ -1995,7 +1995,7 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
               put_hex2(sel);
               puts_str("  loop "); se_hex2(loop, fc == 0);
               puts_str(" len ");   se_hex2(len,  fc == 1);
-    at_puts(5, 0, kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone TN");
+    at_puts(5, 0, kind ? "LN by   note offset" : "LN b0 b1 b2 b3  Vl Tone TNE Ns");
     for (i = 0; i < len && i < SE_VIS_LINES; i++) {
         unsigned int  lo = off + 2 + (unsigned int)i * lsz;
         unsigned char fb = (unsigned char)(2 + i * lsz);
@@ -2017,17 +2017,26 @@ static void se_draw(unsigned char kind, unsigned char sel, unsigned char fc)
             if (tone < 0) { putch('-'); tone = -tone; } else putch('+');
             put_dec5_right((unsigned int)tone);
             /* tone/noise are active-low DISABLE bits in b1 (mixer); show the
-               channel as ON (letter) when the bit is clear. */
+               channel as ON (letter) when the bit is clear. E = hardware
+               envelope enable (b0 bit0, also active-low). */
             putch(' ');
             putch((b1 & 0x10) ? '-' : 'T');
             putch((b1 & 0x80) ? '-' : 'N');
+            putch((song[lo] & 0x01) ? '-' : 'E');
+            /* Ns = per-line noise pitch (b0 bits1-5, added to the master noise
+               base which defaults to 0). Only audible when noise is on (N), so
+               show "--" when this line's noise is muted. */
+            putch(' ');
+            if (b1 & 0x80) { putch('-'); putch('-'); }
+            else put_dec((unsigned char)((song[lo] >> 1) & 0x1F));
         }
     }
     /* Keep all prints on rows <=21: rows 22-23 are the ROM's lower-screen
        channel and PRINT-AT there via RST $10 corrupts/resets. */
     at(20, 0); puts_str(kind ? "SPACE=field  0-F=edit"
-                             : "SPACE=fld 0-F=ed T=tone N=noise");
-    at_puts(21, 0, "O/P=sel  len:resize  Q=back");
+                             : "SPC=fld 0-F=ed T/N=mix");
+    at_puts(21, 0, kind ? "O/P=sel  len:resize  Q=back"
+                        : "UP/DN=Ns O/P=sel len Q=bk");
 }
 
 /* Resize (and, implicitly, fork to a private block) instrument `sel` of `kind`
@@ -2140,6 +2149,26 @@ static void show_instr_editor(unsigned char kind)
                 off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
                 w[off + 2 + ((unsigned int)cl << 2) + 1] ^= mask;
                 while (key_T() || key_N()) intrinsic_halt();
+                break;
+            }
+            /* Samples: CAPS+up / CAPS+down nudge the cursor line's NOISE PITCH
+               (b0 bits1-5 = the offset added to the master noise base). Keeps
+               bit0 (env) and bits6-7 (amp-slide) untouched. */
+            if (!kind && fc >= 2 && (key_up() || key_down())) {
+                unsigned char *w = (unsigned char *)TAPE_SONG_BASE;
+                unsigned char cl = (unsigned char)((fc - 2) >> 2);
+                unsigned char up = key_up();
+                unsigned int  a;
+                unsigned char b0, p;
+                instr_ensure_private(kind, sel);
+                off = w[tbl + sel * 2] | ((unsigned int)w[tbl + sel * 2 + 1] << 8);
+                a  = off + 2 + ((unsigned int)cl << 2);          /* b0 of line cl */
+                b0 = w[a];
+                p  = (unsigned char)((b0 >> 1) & 0x1F);
+                p  = up ? (unsigned char)((p + 1) & 0x1F)
+                        : (unsigned char)((p - 1) & 0x1F);
+                w[a] = (unsigned char)((b0 & 0xC1) | (p << 1));  /* bits1-5 */
+                while (key_up() || key_down()) intrinsic_halt();
                 break;
             }
             h = read_hex_key();
