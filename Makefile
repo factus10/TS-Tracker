@@ -34,15 +34,15 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # bigger song slot and the sound-editor overhaul: as new editor code grows the
 # image, PTX_ORIGIN/TAPE_SONG_BASE are nudged up (trading song-slot slack, which
 # is large -- the largest bundled song is only 5464 B). The editor has grown
-# through the sound-FX overhaul; with the Phase-3 pattern-FX code the image ends
-# ~$D440, so PTX_ORIGIN=D600 and -- with the 2275 B PTxPlay ending ~$DEE3 --
-# TAPE_SONG_BASE=DF00, so SONG_BUDGET = $FB00-$DF00 = 7168 B (~1.7 KB over the
+# through the sound-FX overhaul; with the Phase-3a noise FX the image ends ~$D485,
+# so PTX_ORIGIN=D500 and -- with the 2275 B PTxPlay ending ~$DDE3 --
+# TAPE_SONG_BASE=DE00, so SONG_BUDGET = $FB00-$DE00 = 7424 B (~2 KB over the
 # largest bundled song). NB image size is mildly sensitive to PTX_ORIGIN (its
-# address feeds the compiled-in ptxplay_addrs.h), so the guard is generous; the
-# overlap check below is the backstop. The player is decoupled and keeps the
-# original D700/E200 map + full PT1/PT2/PT3 PTxPlay.
-PTX_ORIGIN_HEX     ?= D600
-TAPE_SONG_BASE_HEX ?= DF00
+# address feeds the compiled-in ptxplay_addrs.h, and it GROWS as PTX_ORIGIN drops,
+# which caps how tight the guard can go); the overlap check below is the backstop.
+# The player is decoupled and keeps the original D700/E200 map + full PTxPlay.
+PTX_ORIGIN_HEX     ?= D500
+TAPE_SONG_BASE_HEX ?= DE00
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
 PLAYER_PTX_ORIGIN_HEX ?= D700
