@@ -17,6 +17,20 @@ PT2/PT3 driver. Output is a single Spectrum-format `.tap` that loads on
 **any** emulator (zesarux, FUSE, ...) and on real hardware via the
 **TS-PICO** in tape-emulation mode.
 
+## The editor
+
+Compose three-voice AY chip-tunes right on the 2068. See the user manual
+([docs/manual.md](docs/manual.md), printable [PDF](docs/manual.pdf)) for the
+full guide and a step-by-step "your first tune" walkthrough.
+
+| Pattern editor | Sample editor |
+| --- | --- |
+| ![Pattern editor — three voices, beat-line colouring, live free-RAM counter](docs/screenshots/ts-tracker-pattern-editor.png) | ![Sample editor — a volume envelope and a noise-pitch sweep](docs/screenshots/ts-tracker-sample-editor.png) |
+| Three voices, beat-line colouring, live free-RAM counter. | Shape a volume envelope and sweep the noise pitch. |
+| **Ornament editor** | **Title screen** |
+| ![Ornament editor — arpeggio chords](docs/screenshots/ts-tracker-ornament-editor.png) | ![TS Tracker title screen](docs/screenshots/ts-tracker-splash.png) |
+| Build the classic arpeggio "chords" (here `0 +4 +7`). | Boots straight to a Sinclair-style menu. |
+
 ## What it does
 
 - Boots to a Sinclair-style menu (TIMEX banner, status line, INVERSE-key
@@ -129,9 +143,12 @@ Channel mute persists across songs in the same session.
       beat-lined grid, in-editor playback, per-cell sample + ornament, full
       sample and ornament editors, and save-back to tape. See `docs/manual.md`
       and `docs/architecture.md`.
+- [x] **Sound editor (v1.2)** — per-line noise pitch + envelope display, master
+      noise-pitch authoring, song tempo/speed editing, cursor-key field nav, and
+      a memory-map reclaim that grew the song slot ~5.6 KB → ~7.4 KB.
 - [ ] TS-PICO native file loading (load any `.pt3` by filename via TPI)
-- [ ] Live playback while editing; tempo edit; multi-pattern real-song
-      verification on hardware (see `TODO.md`)
+- [ ] Live playback while editing; hardware-envelope authoring; multi-pattern
+      real-song verification on hardware (see `TODO.md`)
 
 ## Build details
 
@@ -142,14 +159,16 @@ TS2068's `$F5` / `$F6` ports so the `+zx` clib's Spectrum-128 AY
 assumptions never come into play.
 
 Each tape is C code at `$8000`, then PTxPlay and a tape song slot above it.
-**The two apps have decoupled memory maps** — the tracker's editor needs more
-code room, so it runs PTxPlay higher with a smaller slot; the player keeps the
-original, roomier layout:
+**The two apps have decoupled memory maps.** A memory-map optimisation on the
+tracker (dropping the unused crt0 stdio/heap code — it prints via a raw `RST $10`
+thunk — and slimming its PTxPlay copy to PT3-only) freed enough RAM that, even
+with the extra editor code, the tracker now carries a comfortable song slot.
+The player keeps its original layout:
 
 | App | C code | PTxPlay | Song slot | Notes |
 | --- | --- | --- | --- | --- |
 | player  | `$8000` | `$D700` | `$E200` (~6.4 KB) | small binary, full slot |
-| tracker | `$8000` | `$DAC0` | `$E500` (~5.5 KB) | + decoded song model at `$6000` |
+| tracker | `$8000` | `$D500` | `$DE00` (~7.4 KB) | CRT-diet build; + decoded song model at `$6000` |
 
 `PLAYER_PTX_ORIGIN_HEX`/`PLAYER_SONG_BASE_HEX` and `PTX_ORIGIN_HEX`/
 `TAPE_SONG_BASE_HEX` (the tracker's) in the Makefile are the single source of
