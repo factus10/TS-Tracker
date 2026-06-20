@@ -33,15 +33,16 @@ OPT      ?= -SO3 -O3 --max-allocs-per-node200000
 # (build_ptxplay_asm.py ... 1, 2275 B). That freed ~4 KB which now funds BOTH a
 # bigger song slot and the sound-editor overhaul: as new editor code grows the
 # image, PTX_ORIGIN/TAPE_SONG_BASE are nudged up (trading song-slot slack, which
-# is large -- the largest bundled song is only 5464 B). Currently the image ends
-# ~$CEF7; PTX_ORIGIN=D000 (~265 B guard for in-progress editor work) and -- with
-# the 2275 B PTxPlay ending ~$D8E3 -- TAPE_SONG_BASE=D900, so SONG_BUDGET =
-# $FB00-$D900 = 8704 B (~3.2 KB over the largest song). NB image size is mildly
-# sensitive to PTX_ORIGIN (its address feeds the compiled-in ptxplay_addrs.h), so
-# the guard is generous; the overlap check below is the backstop. The player is
-# decoupled and keeps the original D700/E200 map + full PT1/PT2/PT3 PTxPlay.
-PTX_ORIGIN_HEX     ?= D000
-TAPE_SONG_BASE_HEX ?= D900
+# is large -- the largest bundled song is only 5464 B). The editor has grown
+# through the sound-FX overhaul; with the Phase-3 pattern-FX code the image ends
+# ~$D440, so PTX_ORIGIN=D600 and -- with the 2275 B PTxPlay ending ~$DEE3 --
+# TAPE_SONG_BASE=DF00, so SONG_BUDGET = $FB00-$DF00 = 7168 B (~1.7 KB over the
+# largest bundled song). NB image size is mildly sensitive to PTX_ORIGIN (its
+# address feeds the compiled-in ptxplay_addrs.h), so the guard is generous; the
+# overlap check below is the backstop. The player is decoupled and keeps the
+# original D700/E200 map + full PT1/PT2/PT3 PTxPlay.
+PTX_ORIGIN_HEX     ?= D600
+TAPE_SONG_BASE_HEX ?= DF00
 PTX_ORIGIN_DEC     := $(shell printf '%d' 0x$(PTX_ORIGIN_HEX))
 TAPE_SONG_BASE_DEC := $(shell printf '%d' 0x$(TAPE_SONG_BASE_HEX))
 PLAYER_PTX_ORIGIN_HEX ?= D700

@@ -71,16 +71,18 @@ All committed to `main`.
       It's in the header below `base_pat_off`, so `rebuild_song` preserves it and
       the next play (A) uses it. (Per-pattern `C_DELAY`/SPCCOMS 0x09 still TODO --
       it needs the Phase-3 FX store.)
-- [ ] **Phase 3 — pattern-FX commands** — author the master noise period
-      (`Ns_Base`, opcode 0x20-0x3F) and the hardware envelope (shape+period,
-      opcode 0xB2-0xBF, 3 bytes). Needs a per-row FX store: the decoded model is
-      note/sample/volume/ornament only, so `decode_channel_row`/`encode_channel`
-      currently PARSE-but-DROP these. Least-disruptive option is a sparse
-      per-pattern FX list (don't widen `cell_t` — that costs patterns). With FX
-      authored, the `E` flag and per-line noise become fully musical.
-      (Heads-up found during research: `decode_channel_row` assumes the 2-byte
-      ESAM form (0x10-0x1F); the 0x11-0x1F + envelope form is 4 bytes — scan real
-      songs for it before shipping FX, it could desync the current decoder.)
+- [x] **Phase 3a — pattern-FX: master noise period** — a sparse FX store (in BSS,
+      keyed by pat/row/chan; no `cell_t`/model change) now captures the noise
+      command (0x20-0x3F) the decoder used to drop, the encoder re-emits it, and
+      `U` cycles a new **Noise** mode (Oct/Vol/Smp/Orn/**Noi**) to author it (2-hex
+      0-31) on any note/rest cell. Insert/delete/clear keep FX row-aligned.
+      Verified: author noise 0x15 on a C-4 -> rebuilt slot = `35 74 D0`.
+- [ ] **Phase 3b — pattern-FX: hardware envelope** — on the same store: author the
+      envelope SHAPE + 16-bit PERIOD (SETENV, opcode 0xB2-0xBF, 3 bytes) and EOff
+      (0xB0). Pairs with the Phase-1 per-line `E` gate to make envelopes musical.
+      (Heads-up from research: `decode_channel_row` assumes the 2-byte ESAM form
+      (0x10-0x1F); the 0x11-0x1F + envelope form is 4 bytes — scan real songs for
+      it before shipping the envelope decode, it could desync the decoder.)
 
 ## To consider — ideas from the origin programs
 

@@ -746,6 +746,7 @@ typedef struct {
     unsigned char volume;
     signed char   note;        /* current row's emitted note */
     unsigned char done;        /* set when FIN encountered: emit empties only */
+    unsigned char ns;          /* noise base seen this row (0..31), 0xFF = none */
 } chdec_t;
 
 static const unsigned char spccoms_param[16] = {
@@ -762,8 +763,101 @@ static const unsigned char spccoms_param[16] = {
     0, 0, 0, 0, 0, 0 /* 0A..0F NOP */
 };
 
+/* ---- Pattern FX store (Phase 3) ---------------------------------------------
+   PT3 streams carry per-row commands the 3-byte cell model can't: the master
+   NOISE period (0x20-0x3F). These attach to a note/rest EVENT in a channel's
+   stream (the engine only runs commands on event rows), so we key the store by
+   (pattern, row, channel) of the event cell. Sparse -- most cells have no FX.
+   decode captures them (instead of dropping at decode_channel_row), encode
+   re-emits them, so loaded songs round-trip their FX and the editor can author
+   it. The store lives in the C image's BSS (no change to the $6000 model). */
+#define MAX_FX 96
+typedef struct {
+    unsigned char patchan;   /* (pat << 2) | chan */
+    unsigned char row;       /* 0..63 */
+    unsigned char ns;        /* noise base 0..31, 0xFF = none */
+} fx_t;
+static fx_t          fx[MAX_FX];
+static unsigned char fx_count;
+static unsigned char fx_decode_pat;     /* pattern currently being decoded */
+static unsigned char cur_edit_pat;      /* pattern shown in the editor (FX lookup) */
+
+static signed int fx_find(unsigned char pat, unsigned char row, unsigned char chan)
+{
+    unsigned char pc = (unsigned char)((pat << 2) | chan);
+    unsigned char i;
+    for (i = 0; i < fx_count; i++)
+        if (fx[i].patchan == pc && fx[i].row == row) return (signed int)i;
+    return -1;
+}
+
+static unsigned char fx_get_ns(unsigned char pat, unsigned char row, unsigned char chan)
+{
+    signed int idx = fx_find(pat, row, chan);
+    return (idx >= 0) ? fx[idx].ns : 0xFF;
+}
+
+/* Set (val 0..31) or clear (val 0xFF) the noise base for an event cell. A record
+   that becomes empty is swap-removed so the bounded store doesn't fill with
+   blanks during a session. */
+static void fx_set_ns(unsigned char pat, unsigned char row, unsigned char chan,
+                      unsigned char val)
+{
+    signed int idx = fx_find(pat, row, chan);
+    if (val == 0xFF) {                                   /* clear */
+        if (idx >= 0) fx[idx] = fx[--fx_count];          /* swap-remove */
+        return;
+    }
+    if (idx < 0) {                                       /* create */
+        if (fx_count >= MAX_FX) return;                  /* bounded: drop */
+        idx = (signed int)fx_count++;
+        fx[idx].patchan = (unsigned char)((pat << 2) | chan);
+        fx[idx].row = row;
+    }
+    fx[idx].ns = val;
+}
+
+/* Keep FX aligned when rows are inserted/deleted in a pattern (all channels).
+   Insert: rows >= `at` move down 1 (one falling off the end is dropped).
+   Delete: FX at `at` is removed, rows > `at` move up 1. */
+static void fx_rows_insert(unsigned char pat, unsigned char at)
+{
+    unsigned char base = (unsigned char)(pat << 2);
+    unsigned char i = 0;
+    while (i < fx_count) {
+        if ((fx[i].patchan & 0xFC) == base && fx[i].row >= at) {
+            if (fx[i].row >= PV_ROWS_MAX - 1) { fx[i] = fx[--fx_count]; continue; }
+            fx[i].row++;
+        }
+        i++;
+    }
+}
+static void fx_rows_delete(unsigned char pat, unsigned char at)
+{
+    unsigned char base = (unsigned char)(pat << 2);
+    unsigned char i = 0;
+    while (i < fx_count) {
+        if ((fx[i].patchan & 0xFC) == base) {
+            if (fx[i].row == at)     { fx[i] = fx[--fx_count]; continue; }
+            if (fx[i].row >  at)     fx[i].row--;
+        }
+        i++;
+    }
+}
+/* Drop all FX on one channel of a pattern (used when clearing the channel). */
+static void fx_clear_chan(unsigned char pat, unsigned char chan)
+{
+    unsigned char pc = (unsigned char)((pat << 2) | chan);
+    unsigned char i = 0;
+    while (i < fx_count) {
+        if (fx[i].patchan == pc) { fx[i] = fx[--fx_count]; continue; }
+        i++;
+    }
+}
+
 static void decode_channel_row(chdec_t *c)
 {
+    c->ns = 0xFF;
     /* After FIN, the stream pointer points past the channel's last byte;
        further reads would parse garbage. Just emit empties. */
     if (c->done)   { c->note = -1; return; }
@@ -786,7 +880,7 @@ static void decode_channel_row(chdec_t *c)
 
         if (cmd >= 0xC1 && cmd <= 0xCF) { c->volume = cmd & 0x0F; continue; }
         if (cmd >= 0x40 && cmd <= 0x4F) { c->ornament = cmd & 0x0F; continue; }
-        if (cmd >= 0x20 && cmd <= 0x3F) { continue; }                   /* NOISE base */
+        if (cmd >= 0x20 && cmd <= 0x3F) { c->ns = cmd & 0x1F; continue; } /* NOISE base */
         if (cmd >= 0xD1 && cmd <= 0xEF) { c->sample = cmd - 0xD0; continue; }
         if (cmd >= 0xF0) {                                              /* OrSm */
             c->ornament = cmd - 0xF0;
@@ -837,6 +931,9 @@ static void decode_pattern_streams(const unsigned char *p_a,
             cell->sample   = ch[c].sample;
             cell->volume   = ch[c].volume;
             cell->ornament = ch[c].ornament;
+            /* FX attaches to the event row; capture the noise base it carried. */
+            if (ch[c].note != -1 && ch[c].ns != 0xFF)
+                fx_set_ns(fx_decode_pat, (unsigned char)row, c, ch[c].ns);
         }
     }
     for (; row < PV_ROWS_MAX; row++) {
@@ -858,6 +955,7 @@ static void decode_pattern(unsigned char pat_index)
     unsigned int off_a = song[pat_entry + 0] | ((unsigned int)song[pat_entry + 1] << 8);
     unsigned int off_b = song[pat_entry + 2] | ((unsigned int)song[pat_entry + 3] << 8);
     unsigned int off_c = song[pat_entry + 4] | ((unsigned int)song[pat_entry + 5] << 8);
+    fx_decode_pat = pat_index;          /* key captured FX to this pattern */
     decode_pattern_streams(song + off_a, song + off_b, song + off_c);
 }
 
@@ -876,7 +974,8 @@ static void decode_pattern(unsigned char pat_index)
    rebuild_song encodes straight into the song slot, so no staging buffer. */
 static unsigned char  encode_event_rows[PV_ROWS_MAX];
 
-static unsigned int encode_channel(unsigned char chan,
+static unsigned int encode_channel(unsigned char pat,
+                                   unsigned char chan,
                                    unsigned char *out,
                                    unsigned int max_out)
 {
@@ -958,6 +1057,15 @@ static unsigned int encode_channel(unsigned char chan,
             if (pos + 1 > max_out) return 0xFFFFu;
             out[pos++] = 0x40 + cell->ornament;   /* 0x40..0x4F set ornament */
             cur_ornament = cell->ornament;
+        }
+        /* Per-row FX: emit the master noise base (0x20+value) before the event
+           so the engine applies it on this row. FX attaches to event rows. */
+        {
+            unsigned char nsv = fx_get_ns(pat, r, chan);
+            if (nsv != 0xFF) {
+                if (pos + 1 > max_out) return 0xFFFFu;
+                out[pos++] = (unsigned char)(0x20 | (nsv & 0x1F));
+            }
         }
         if (pos + 1 > max_out) return 0xFFFFu;
         if (cell->note == -2) {
@@ -1281,7 +1389,8 @@ static void draw_oct_indicator(unsigned char octave)
 static void draw_mode_label(unsigned char mode)
 {
     at(2, 22);
-    puts_str(mode == 3 ? "Orn:" : mode == 2 ? "Smp:" : mode == 1 ? "Vol:" : "Oct:");
+    puts_str(mode == 4 ? "Noi:" : mode == 3 ? "Orn:" : mode == 2 ? "Smp:"
+           : mode == 1 ? "Vol:" : "Oct:");
 }
 
 /* The value field at cols 26-27, reflecting the active edit mode: octave
@@ -1291,7 +1400,18 @@ static void draw_cell_value(unsigned char mode, unsigned char octave,
                             const cell_t *c)
 {
     at(2, 26);
-    if      (mode == 2) put_hex2(c->sample);             /* 2 chars */
+    if (mode == 4) {                                     /* Noise FX base */
+        /* derive (row, chan) of this cell within the shown pattern; FX only
+           attaches to event cells (note/rest), so show "--" on empty cells. */
+        unsigned int  k    = (unsigned int)(c - MODEL(cur_edit_pat));
+        unsigned char ns   = (c->note != -1)
+                           ? fx_get_ns(cur_edit_pat, (unsigned char)(k / 3),
+                                       (unsigned char)(k % 3))
+                           : 0xFF;
+        if (ns == 0xFF) { putch('-'); putch('-'); }
+        else put_hex2(ns);
+    }
+    else if (mode == 2) put_hex2(c->sample);             /* 2 chars */
     else if (mode == 1) { put_hex1(c->volume);   putch(' '); }
     else if (mode == 3) { put_hex1(c->ornament); putch(' '); }
     else                { putch('0' + octave);   putch(' '); }
@@ -1505,7 +1625,7 @@ static unsigned char rebuild_song(void)
         for (ch = 0; ch < 3; ch++) {
             unsigned int n;
             if (data >= SONG_BUDGET) { pattern_view = saved; return 0; }
-            n = encode_channel(ch, song + data, SONG_BUDGET - data);
+            n = encode_channel(p, ch, song + data, SONG_BUDGET - data);
             if (n == 0xFFFFu)        { pattern_view = saved; return 0; }
             song[table + (unsigned int)p * 6 + ch * 2 + 0] = (unsigned char)(data & 0xFF);
             song[table + (unsigned int)p * 6 + ch * 2 + 1] = (unsigned char)(data >> 8);
@@ -1530,6 +1650,7 @@ static void decode_all_patterns(void)
     unsigned char num_pos = song[101];
     unsigned char np = 0, i, p;
 
+    fx_count = 0;                                   /* re-capture FX from scratch */
     for (i = 0; i < num_pos; i++) {
         unsigned char pp = song[201 + i] / 3;
         if (pp > np) np = pp;
@@ -1933,7 +2054,7 @@ static void show_help_page(void)
     at_puts(13, 2, "9 = clear channel column");
 
     at_puts(14, 0, "Instruments:");
-    at_puts(15, 2, "U: Oct/Vol/Smp/Orn mode");
+    at_puts(15, 2, "U: Oct/Vol/Smp/Orn/Noise");
     at_puts(16, 2, "0..F sets vol/samp/orn");
     at_puts(17, 2, "E=sample  T=ornament edit");
 
@@ -2270,6 +2391,7 @@ static void show_pattern(unsigned char idx)
 
     for (;;) {
         intrinsic_halt();
+        cur_edit_pat = pat;        /* FX lookups (draw_cell_value, edits) follow the shown pattern */
         if (key_Q() || key_break()) return;
 
         if (nav_down() && cursor + 1 < PV_ROWS_MAX) {
@@ -2324,7 +2446,7 @@ static void show_pattern(unsigned char idx)
                hex digits roll a 2-digit sample number (00..1F) into the cell.
                The label at col 22 and the value at col 26-27 follow the mode. */
             while (key_U()) intrinsic_halt();
-            edit_mode = (unsigned char)((edit_mode + 1) % 4);
+            edit_mode = (unsigned char)((edit_mode + 1) % 5);  /* +Noise(4) */
             draw_mode_label(edit_mode);
             draw_cell_value(edit_mode, octave,
                 &pattern_view[(unsigned int)cursor * 3 + cursor_ch]);
@@ -2335,6 +2457,7 @@ static void show_pattern(unsigned char idx)
                together. */
             while (key_I()) intrinsic_halt();
             insert_row(cursor);
+            fx_rows_insert(pat, cursor);          /* keep FX aligned with notes */
             draw_pattern_grid(top, cursor, cursor_ch);
             draw_row_indicator(cursor);
             draw_cell_value(edit_mode, octave,
@@ -2345,6 +2468,7 @@ static void show_pattern(unsigned char idx)
                shift up; the last row becomes empty. */
             while (key_delete()) intrinsic_halt();
             delete_row(cursor);
+            fx_rows_delete(pat, cursor);          /* keep FX aligned with notes */
             draw_pattern_grid(top, cursor, cursor_ch);
             draw_row_indicator(cursor);
             draw_cell_value(edit_mode, octave,
@@ -2363,6 +2487,16 @@ static void show_pattern(unsigned char idx)
                     c->volume = (unsigned char)h;
                 } else if (edit_mode == 3) {
                     c->ornament = (unsigned char)h;             /* 0..15 */
+                } else if (edit_mode == 4) {
+                    /* Noise FX: master noise base for this row. PT3 ties FX to a
+                       note/rest event, so only editable on an event cell. Roll a
+                       2-hex value, clamp 0..31, into the FX side-table. */
+                    if (c->note != -1) {
+                        unsigned char cur = fx_get_ns(pat, cursor, cursor_ch);
+                        if (cur == 0xFF) cur = 0;
+                        fx_set_ns(pat, cursor, cursor_ch,
+                            (unsigned char)(((cur << 4) | (unsigned char)h) & 0x1F));
+                    }
                 } else {
                     /* Smp: roll a 2-hex-digit sample number, clamp to 0..31. */
                     c->sample = (unsigned char)(((c->sample << 4) | (unsigned char)h) & 0x1F);
@@ -2527,6 +2661,7 @@ static void show_pattern(unsigned char idx)
                     cell->sample = 0;
                     cell->volume = 0;
                 }
+                fx_clear_chan(pat, cursor_ch);    /* drop this channel's FX too */
                 /* song_bytes_used drifts pessimistically: we don't know
                    how many notes we just removed without re-walking, so
                    leave the estimate alone. The next commit (W) snaps it
@@ -2541,6 +2676,7 @@ static void show_pattern(unsigned char idx)
             cell_t *cell = &pattern_view[(unsigned int)cursor * 3 + cursor_ch];
             if (cell->note != -1) {
                 cell->note = -1;
+                fx_set_ns(pat, cursor, cursor_ch, 0xFF);  /* FX rides the note */
                 if (song_bytes_used >= 2) song_bytes_used -= 2;
                 redraw_cursor_row(top, cursor, cursor_ch);
                 draw_free_mem();
