@@ -33,7 +33,8 @@ editing is what you will hear on playback.
 If you are the sort of person who reads the whole manual before touching the
 keyboard, good for you --- but you needn't. TS Tracker leads you by the hand
 with on-screen menus and a built-in help page (press **K** any time you are
-editing). The rest of this booklet fills in the details.
+editing). If you would rather learn by doing, jump to *Walkthrough: your first
+tune* near the back and follow along; the reference chapters fill in the rest.
 
 # Loading the program
 
@@ -66,7 +67,8 @@ When the program starts it has no song in memory, so it shows the
 | `Q` | **Quit** back to BASIC |
 
 If you just want to make a tune from scratch, press **N** and skip ahead to
-*The pattern editor*. To work on a song already on cassette, read on.
+*The pattern editor* (or to the *Walkthrough*). To work on a song already on
+cassette, read on.
 
 # Scanning a tape
 
@@ -99,17 +101,29 @@ Pick a number and TS Tracker loads that song into memory.
 # The song information screen
 
 Whether you loaded a song or started a new one, you arrive at the
-**Song info** screen. It shows the tune's vital statistics:
+**Song info** screen. It is the hub you return to from the pattern editor, and
+it shows the tune's vital statistics:
 
 | Field | Meaning |
 |-------|---------|
 | File | The song's name |
 | Type | PT3 (or PT2) |
-| Speed | Playback speed value |
+| Speed | Playback speed (tempo) value |
 | Positions | Length of the song, and its loop point |
 | Patterns | How many patterns the song uses |
 
-From here press **V** to open the pattern editor, or **Q** to go back.
+From here:
+
+| Key | Action |
+|-----|--------|
+| `V` | Open the pattern editor |
+| CAPS SHIFT + `7` / `6` | Raise / lower the song's **Speed** (tempo) |
+| `Q` | Go back |
+
+**About Speed.** It is the number of 50ths-of-a-second the chip holds each
+row, so a *larger* number plays *slower*. Most tunes sit around **3 to 6**.
+Watch the **Speed** field change as you press CAPS+7 / CAPS+6. The new tempo is
+stored with the song and takes effect the next time you play.
 
 # The pattern editor
 
@@ -130,7 +144,9 @@ RR  ChA s   ChB s   ChC s
 ```
 
 - The line at the top tells you the current **pattern number**, the
-  **cursor row**, the active **channel**, and the current **octave**.
+  **cursor row**, the active **channel**, and the current **octave**. (The
+  right-hand part of this line doubles as the edit-mode readout --- see
+  *Setting volumes, samples and more* below.)
 - Each channel cell shows a **note** and a **sample** number. `---` means
   "nothing here"; `-=-` is a **rest** (stop sounding); `C-4` is the note C
   in octave 4.
@@ -197,23 +213,29 @@ Other note-entry keys:
 | CAPS SHIFT + `0` | **Delete** the row, pulling later rows up |
 | `9` | **Clear the whole channel** (asks Y/N first) |
 
-## Setting volumes and samples
+## Setting volumes, samples and more
 
-The **U** key cycles a small edit mode shown at the top right, through four
-settings:
+The **U** key cycles a small edit mode shown at the top right of the info
+line, through five settings:
 
 - **Oct** (default) --- the number keys set the octave, as above.
 - **Vol** --- the keys **0**-**F** set the volume of the cell under the cursor
-  (0 = silent, F = loudest).
-- **Smp** --- the keys **0**-**F** set which **sample** (instrument, 00-1F) the
-  cell's note plays with; type two digits for samples above 0F. The chosen
-  number shows in the cell's right-hand `s` column.
+  (`0` = silent, `F` = loudest).
+- **Smp** --- the keys **0**-**F** set which **sample** (instrument, `00`-`1F`)
+  the cell's note plays with; type two digits for samples above `0F`. The
+  chosen number shows in the cell's right-hand `s` column.
 - **Orn** --- the keys **0**-**F** set the note's **ornament** (the pitch
-  arpeggio it plays through, 0-F).
+  arpeggio it plays through, `0`-`F`).
+- **Noi** --- the keys **0**-**F** set the **master noise pitch** (`00`-`1F`)
+  from this row onward. This only takes on a cell that already has a note or
+  rest, because the change rides on an event. The value shows as `Noi:NN`. A
+  *low* number is a bright, hissy noise; a *high* number is a low, coarse
+  rumble. (Each sample can also nudge the pitch per line --- see the noise
+  notes under *The instrument editors*.)
 
-Press **U** again to cycle back round to Oct. (While in Vol/Smp/Orn mode the
-letter keys feed the value, so press **U** back to Oct before using the
-command keys.)
+Press **U** again to step on; it wraps back round to Oct. (While in any mode
+other than Oct the letter keys feed the value, so press **U** back round to Oct
+before using the command keys.)
 
 # The instrument editors
 
@@ -224,34 +246,56 @@ character. An *ornament* is a short pitch arpeggio a note steps through. Press
 
 ```
 Sample 01  loop 00 len 03
-LN b0 b1 b2 b3  Vl Tone TN
-00 FF 0A 00 00  A +    0 TN
-01 00 00 00 00  0 +    0 TN
-02 00 00 00 00  0 +    0 TN
+LN b0 b1 b2 b3  Vl Tone TNE Ns
+00 FF 8A 00 00  A +    0 TN- 05
+01 00 8A 00 00  A +    0 TN- 00
+02 00 8A 00 00  A +    0 TN- 00
 ```
 
 Each sample is a short list of **lines** the AY steps through, one per frame,
 looping at the **loop** point. Each line is four bytes (`b0`-`b3`); the editor
 shows them in hex so every detail of the PT3 format is reachable, with the
-decoded **volume**, **tone** offset, and the **TN** flags alongside. The `TN`
-column shows whether **t**one and **n**oise are sounding on that line --- a
-letter when on, `-` when off.
+decoded **Vl** (volume), **Tone** offset, the **TNE** flags and the **Ns**
+noise pitch alongside:
 
-- **O** / **P** --- choose which sample (00-1F) or ornament (0-F) to edit.
-- **SPACE** --- step the cursor through the fields (loop, length, then each
-  line's bytes --- four per line for a sample, one for an ornament).
-- **0**-**F** --- set the highlighted field (two hex digits per byte). For an
-  ornament each line is a single signed note offset, shown in decimal.
-- **T** / **N** --- (samples) toggle **tone** / **noise** on the line the
-  cursor is in. This is how you make a clean tone vs. a noisy hit without
-  touching hex.
-- Editing the **len** field grows or shrinks it --- and gives it its own
-  private copy, so you can build a second distinct instrument without
-  disturbing the first. (Up to 13 lines are shown at once.)
+- **TNE** --- whether **t**one, **n**oise and the hardware **e**nvelope are
+  flagged on for that line (a letter when on, `-` when off).
+- **Ns** --- that line's **noise pitch** (`00`-`1F`), or `--` when noise is off
+  on the line. It is added to the song's master noise setting, so a line can
+  ride above or below the master pitch.
+
+## Sample editor keys
+
+- **O** / **P** --- choose which sample (`00`-`1F`) or ornament (`0`-`F`) to
+  edit.
+- **SPACE** --- step the field cursor **forward** through the fields.
+- **CAPS SHIFT + 5 / 8** --- step the field cursor **left / right**.
+- **0**-**F** --- set the highlighted byte (two hex digits).
+- **T** / **N** --- toggle **tone** / **noise** on the cursor's line.
+- **CAPS SHIFT + 7 / 6** --- raise / lower the **noise pitch** (`Ns`) on the
+  cursor's line.
+- **len** field --- edit it to grow or shrink the instrument (it forks a
+  private copy, so a second instrument won't disturb the first).
 - **Q** --- return to the pattern view.
 
+The fields the cursor steps through are: **loop**, **length**, then each
+line's bytes (four per line for a sample, one for an ornament). Setting the
+**len** field gives the instrument its own private copy, so you can build a
+second distinct instrument without disturbing the first. Up to 13 lines are
+shown at once.
+
+For an ornament, each line is a single signed note offset, shown in decimal
+(e.g. `+0`, `+4`, `+7`).
+
 To use an instrument, set a note's sample (`U`-`Smp`) or ornament (`U`-`Orn`)
-number, then `A` to hear it.
+number in the pattern editor, then `A` to hear it.
+
+> **A word on the `E` (envelope) flag.** `E` shows whether a line is set to use
+> the AY's hardware envelope generator. The flag is shown so that envelopes in
+> songs you *load* survive editing and saving. Authoring a hardware envelope
+> from scratch (choosing its shape and speed) is not in this version --- for
+> now, design timbres with the **Vl** column and noise, which covers the vast
+> majority of chip sounds.
 
 # How instruments make sound
 
@@ -266,8 +310,8 @@ tables, and the player "performs" them.
 
 Picture a **sample as a strip of frames** --- one line per 1/50th second ---
 that the chip steps through and then loops. Each line says, for that instant:
-how loud, how far to bend the pitch, and whether tone / noise / the hardware
-envelope are sounding. A short looping strip of those is what gives a note its
+how loud, how far to bend the pitch, whether tone / noise are sounding, and the
+noise pitch. A short looping strip of those is what gives a note its
 *character* --- a sharp pluck, a steady organ, a noisy hit.
 
 An **ornament** is the same idea for **pitch**: a strip of semitone offsets,
@@ -285,12 +329,24 @@ one per frame, added to the note. It only moves pitch, not timbre.
   volume envelope.
 - **Tone** --- a **pitch offset** for that frame (`0` = none). Small
   alternating values make vibrato; a steady ramp makes a pitch bend.
-- **TN** --- whether **t**one and **n**oise are sounding this line (letter =
-  on, `-` = off). Press **T** / **N** to toggle them on the cursor's line.
-- **b0 b1 b2 b3** --- the raw four bytes, for full control. `Vl` lives in `b1`,
-  `Tone` in `b2`/`b3`, the tone/noise switches in `b1` too; the remaining bits
-  in `b0`/`b1` are the hardware-envelope flag and slide settings, which you set
-  as hex (no friendly column yet).
+- **TNE** --- whether **t**one / **n**oise / hardware **e**nvelope are flagged
+  on this line. Press **T** / **N** to toggle tone / noise on the cursor's line.
+- **Ns** --- the **noise pitch** for the line (`00`-`1F`); `--` when noise is
+  off. Press CAPS+7 / CAPS+6 to tune it.
+- **b0 b1 b2 b3** --- the raw four bytes, for full control. `Vl` lives in `b1`;
+  `Tone` in `b2`/`b3`; the tone/noise switches and noise pitch in `b0`/`b1`.
+  The friendly columns and the `T`/`N`/CAPS keys edit these for you, but the
+  hex is always there if you want it.
+
+## Editing a line's volume
+
+The quickest way to shape a sound is its volume over time. The decoded **Vl**
+column is read from byte **b1**: to set a line's volume, step the field cursor
+to that line's **b1** and type the volume as the *second* hex digit. For a
+note that rings cleanly, you want **tone on, noise off** --- so first press
+**T** until the line shows `T`, and **N** until noise shows `-`, then set the
+volume. (The `T`/`N` toggles and the volume share the `b1` byte, so set the
+mixer with `T`/`N` first, then the level.)
 
 ## Making different sounds
 
@@ -310,20 +366,23 @@ lines) plus maybe a little `Tone` movement:
   chord shimmer (the classic chiptune sound); `0, 3, 7` = minor, `0, 12` =
   octave. Assign it to a note with `U`-`Orn`.
 - **Percussion / snare / hi-hat** --- these need **noise** instead of (or as
-  well as) tone, plus a fast `Vl` decay. Press **N** to turn noise on (the `TN`
-  column shows `N`), set `Vl` to fall quickly (e.g. `F 9 4 0`), and you have a
-  hit. Press **T** to drop the tone for pure noise. The noise *pitch* uses the
-  song's default for now (there's no per-sample noise-pitch control yet), so
-  every noise hit shares one timbre --- enough for a recognisable snare or hat.
+  well as) tone, plus a fast `Vl` decay. Press **N** to turn noise on (the
+  `TNE` column shows `N`), set `Vl` to fall quickly (e.g. `F 9 4 0`), and you
+  have a hit. Press **T** to drop the tone for pure noise. **Tune the noise**
+  two ways: per line with CAPS+7 / CAPS+6 in the sample editor (the `Ns`
+  column) so a hit can sweep bright-to-dark, and per song with `U`-`Noi` in the
+  pattern editor to set the master pitch from a row onward. A bright `Ns`
+  (low number) gives a hi-hat or snare crack; a dark `Ns` (high number) gives a
+  tom or rumble.
 
 ## Where it goes
 
 Each frame the player turns this data into the AY's registers: note + ornament
 set the channel's **pitch**; the sample's `Tone` is added to that pitch; `Vl`
 becomes the channel **volume**; the tone/noise switches set the chip's
-**mixer**; and the envelope flag routes the channel through the AY's hardware
-**envelope**. All of it is stored inside the song file (the sample and ornament
-tables), so it travels with the tune when you save.
+**mixer**; and the noise pitch sets the shared noise generator. All of it is
+stored inside the song file (the sample and ornament tables, and the noise
+settings), so it travels with the tune when you save.
 
 # Hearing your work
 
@@ -336,7 +395,7 @@ You don't need to leave the editor to listen:
 
 Either way, press any key to stop and return to editing. TS Tracker rebuilds
 the tune from your edits before it plays, so you always hear the latest
-version.
+version --- including the tempo you set on the Song info screen.
 
 # Saving to tape
 
@@ -364,14 +423,80 @@ Start your recorder, press ENTER, and the song is written as a standard CODE
 block. Load it back with the TS Tracker Player, or scan it straight back into
 the editor.
 
-> If the song has grown too large to fit the cassette buffer, TS Tracker
+> If the song has grown too large to fit the cassette song area, TS Tracker
 > refuses to save and tells you so. Remove some notes or patterns and try
 > again.
 
+# Walkthrough: your first tune
+
+Theory is fine, but the keys live in your fingers only after you use them.
+Here is a complete pass --- a short loop with a melody, a bass and a drum ---
+from a blank machine to a saved tape. Follow along.
+
+**1. Start a new song.** From the first screen press **N**. You land on the
+Song info screen; press **V** to open the pattern editor on an empty pattern 0.
+The cursor sits on row `00`, channel A.
+
+**2. Lay a melody on channel A.** Octave 4 is fine (the top line shows
+`Oct:4`). Place a note every four rows so they fall on the cyan beat lines:
+
+- Row `00`: tap **Z** (C).
+- Press CAPS+6 to row `04`: tap **B** (G).
+- Down to row `08`: tap **N** (A).
+- Down to row `0C` (the next bar line): tap **M** (B).
+
+You have placed four notes, one per beat. Press **A** to hear the loop; press
+any key to stop.
+
+**3. Add a bass on channel B.** Press CAPS+8 to move to channel B, then **R**
+to jump back to row `00`. Press **2** to drop to octave 2, then:
+
+- Row `00`: **Z** (a low C).
+- Down to row `08`: **V** (a low F).
+
+Press **A** again --- melody and bass together.
+
+**4. Add a drum on channel C.** CAPS+8 to channel C, **R** to row `00`. Place
+a hit on the off-beats:
+
+- Row `04`: tap any note (say **Z**) --- we will give it a noise instrument.
+- Down to row `0C`: **Z** again.
+
+**5. Build a snare instrument.** Press **E** for the sample editor. Press **P**
+until you are on a free sample, say `02`. Step to the **len** field (SPACE
+twice, or CAPS+5/8) and type **4** for four lines. Now make a noisy decay:
+
+- On each line, press **N** until the `TNE` column shows `N`, and **T** until
+  tone shows `-` (pure noise).
+- Set the volumes to fall fast: step to line `00`'s **b1** and type the level
+  in the second digit so **Vl** reads `F`; line `01` `9`; line `02` `4`;
+  line `03` `0`. The `Vl` column now reads `F 9 4 0`.
+- Tune the crack: with the cursor on a line, tap CAPS+7 / CAPS+6 to set the
+  `Ns` noise pitch to taste (a low number for a sharp snare).
+- Set **loop** to `03` (the silent last line) so the hit fires once and stops.
+
+Press **Q** to return to the pattern editor.
+
+**6. Point the drum notes at the snare.** You are on channel C. Press **U**
+until the mode reads `Smp:`, then type **02** to set this cell's sample to your
+snare. Move to the other drum row (CAPS+6 to row `0C`) and do the same. Press
+**U** back round to `Oct:` so the letter keys are commands again.
+
+**7. Set the tempo.** Press **Q** to the Song info screen. Press CAPS+7 / CAPS+6
+to set **Speed** --- try `5`. Press **V** to return to the pattern.
+
+**8. Play the whole thing.** Press **A**. Press any key to stop.
+
+**9. Save it.** Press **W**, type a name like `FIRST`, make sure your recorder
+is in record, and press ENTER. TS Tracker writes `FIRST   01` to the tape.
+
+That's a finished, saved chip-tune --- three voices, a custom drum, and a tempo
+of your own. Everything else in this manual is variations on those steps.
+
 # The help screen
 
-Press **K** at any time in the editor for a full one-screen key reference.
-Press any key to return exactly where you left off.
+Press **K** at any time in the pattern editor for a full one-screen key
+reference. Press any key to return exactly where you left off.
 
 # Quick key reference
 
@@ -379,7 +504,7 @@ Press any key to return exactly where you left off.
 
 **Directory:** `1`-`9` choose, `R` re-scan, `Q` quit.
 
-**Song info:** `V` edit patterns, `Q` back.
+**Song info:** `V` edit patterns, CAPS+7/6 Speed, `Q` back.
 
 **Pattern editor:**
 
@@ -391,21 +516,37 @@ Press any key to return exactly where you left off.
 | `R` | Jump to row 0 | SPACE | Clear cell |
 | `A` | Play song | `I` | Insert row |
 | `L` | Loop pattern | CAPS+0 | Delete row |
-| `U` | Oct/Vol/Smp/Orn | `9` | Clear channel |
+| `U` | Oct/Vol/Smp/Orn/Noi | `9` | Clear channel |
 | `E` | Sample editor | `T` | Ornament editor |
 | `W` | Save to tape | `K` | Help |
 | `Q` | Back to song info | | |
+
+**Sample / ornament editor:**
+
+| Key | Action |
+|-----|--------|
+| `O` / `P` | Choose instrument |
+| SPACE, CAPS+5/8 | Move between fields |
+| `0`-`F` | Set the byte (hex) |
+| `T` / `N` | Toggle tone / noise (samples) |
+| CAPS+7/6 | Noise pitch up / down (samples) |
+| `Q` | Back to pattern editor |
 
 # Limits and notes
 
 - A song may use up to **14 patterns**.
 - When you save, the whole tune must fit the cassette song area (about
-  **5.5 K**, instruments + patterns combined). The **Free** counter warns you
+  **7 K**, instruments + patterns combined). The **Free** counter warns you
   as you approach the limit.
 - TS Tracker edits **PT3** songs. **PT2** songs play but cannot be edited.
+- The master noise pitch (`U`-`Noi`) and the per-line noise pitch (`Ns`) attach
+  to a row that carries a note or rest --- they ride on an event, the way the
+  PT3 format expects.
 - An empty first row on a sounding channel is saved as a rest --- silence at
   the start of the pattern --- because the PT3 format always reads row zero.
 - The sample and ornament editors show up to 13 lines of an instrument at once.
+- Authoring a hardware envelope (its shape and speed) is not in this version;
+  the `E` flag is shown so loaded songs keep theirs.
 
 # Credits
 
