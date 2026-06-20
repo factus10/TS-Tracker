@@ -77,9 +77,14 @@ All committed to `main`.
       `U` cycles a new **Noise** mode (Oct/Vol/Smp/Orn/**Noi**) to author it (2-hex
       0-31) on any note/rest cell. Insert/delete/clear keep FX row-aligned.
       Verified: author noise 0x15 on a C-4 -> rebuilt slot = `35 74 D0`.
-- [ ] **Phase 3b — pattern-FX: hardware envelope** — on the same store: author the
-      envelope SHAPE + 16-bit PERIOD (SETENV, opcode 0xB2-0xBF, 3 bytes) and EOff
-      (0xB0). Pairs with the Phase-1 per-line `E` gate to make envelopes musical.
+- [~] **Phase 3b — pattern-FX: hardware envelope** — IMPLEMENTED but DEFERRED on
+      branch `phase3b-envelope-deferred`. Authors envelope SHAPE + 16-bit PERIOD
+      (SETENV 0xB2-0xBF) and EOff (0xB0) on the 3a FX store; `U` cycles two new
+      modes EnS/EnP. It compiles and round-trips, but the code is ~1.9 KB, which
+      would drop the song slot from 7168 B to ~5600-5900 B (≈ the original
+      pre-RAM-opt size). Deferred by decision to keep the song slot. To ship:
+      reclaim slot first (the RAM review's Phase-2 `-Cs--opt-code-size` ~+450 B,
+      and/or a smaller MAX_FX), then rebase the branch and re-budget PTX_ORIGIN.
       (Heads-up from research: `decode_channel_row` assumes the 2-byte ESAM form
       (0x10-0x1F); the 0x11-0x1F + envelope form is 4 bytes — scan real songs for
       it before shipping the envelope decode, it could desync the decoder.)
