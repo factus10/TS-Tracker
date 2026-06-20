@@ -65,8 +65,12 @@ All committed to `main`.
       sets AY noise period 0-31 directly), CAPS+↑/↓ nudge it on the cursor line,
       and a `TNE` indicator shows the hardware-envelope enable (`b0` bit0). Noise
       pitch reads `--` on a line whose noise is muted.
-- [ ] **Phase 2 — tempo/speed editing** — edit `song[100]` (global default speed)
-      up/down; later the per-pattern `C_DELAY` (SPCCOMS 0x09) command.
+- [x] **Phase 2 — tempo/speed editing** — the Song Info hub (the screen you land
+      on per song and return to from the pattern view) edits the song's default
+      speed (`song[100]`, PT3 delay = frames/row, higher = slower) with CAPS+↑/↓.
+      It's in the header below `base_pat_off`, so `rebuild_song` preserves it and
+      the next play (A) uses it. (Per-pattern `C_DELAY`/SPCCOMS 0x09 still TODO --
+      it needs the Phase-3 FX store.)
 - [ ] **Phase 3 — pattern-FX commands** — author the master noise period
       (`Ns_Base`, opcode 0x20-0x3F) and the hardware envelope (shape+period,
       opcode 0xB2-0xBF, 3 bytes). Needs a per-row FX store: the decoded model is

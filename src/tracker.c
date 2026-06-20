@@ -691,7 +691,8 @@ static void show_song_info(unsigned char idx)
         at_puts(8, 0, " decoded -- coming soon)");
     }
 
-    at_puts(21, 0, "V view pattern  Q back");
+    at_puts(21, 0, directory[idx].fmt ? "V view pattern  Q back"
+                                      : "V=pattern  C7/6=speed  Q=back");
 }
 
 /* ---- PT3 pattern decoder --------------------------------------------------
@@ -2581,6 +2582,18 @@ static void edit_song(unsigned char idx)
         for (;;) {
             intrinsic_halt();
             if (key_enter() || key_Q()) return;
+            /* CAPS+up / CAPS+down edit the song's default SPEED (song[100], the
+               PT3 "delay" = interrupt frames per row; higher = slower). It lives
+               in the header below base_pat_off, so rebuild_song preserves it and
+               the next play (A) picks it up. PT3 only. Repaints just the value. */
+            if (directory[idx].fmt == 0 && (key_up() || key_down())) {
+                unsigned char *w  = (unsigned char *)TAPE_SONG_BASE;
+                unsigned char sp = w[100];
+                if (key_up()) { if (sp < 31) sp++; } else { if (sp > 1) sp--; }
+                w[100] = sp;
+                at(6, 11); put_dec(sp); putch(' ');
+                while (key_up() || key_down()) intrinsic_halt();
+            }
             /* 'V' is on row $FB bit 4 (Q W E R T -- wait, that's T). Actually
                $FE row Z X C V = bits 1..4, so V = $FE bit 4. */
             if (read_row(0xFE) & 0x10) {
