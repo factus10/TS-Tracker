@@ -57,12 +57,26 @@ All committed to `main`.
 - [ ] **Tempo / speed editing** — we read `song[100]` but offer no way to change
       it (A.Y. Tracker `T`-mode style up/down).
 - [ ] **Multi-pattern UI verification pass** on a real song (see Known issues).
-- [ ] **Hardware-envelope toggle (sample `E` flag)** — deferred with Tone/Noise:
-      `b0` bit0 only sounds once a note carries an envelope command (shape +
-      period), which the tracker can't author yet. Add envelope commands first.
-- [ ] **Per-sample noise pitch** — PT3 has no per-line noise period; it's the
-      global `Ns_Base` + a `b0` delta. Needs a pattern-level noise command +
-      editor to tune snare-bright vs. tom-low.
+## Sound editor overhaul (in progress, funded by the Phase-1 RAM reclaim)
+
+- [x] **Phase 1 — per-line noise pitch + envelope display** — the sample editor
+      now decodes `b0`: an `Ns` column shows the per-line noise pitch (`b0` bits
+      1-5, the offset added to the master noise base, which defaults to 0 so it
+      sets AY noise period 0-31 directly), CAPS+↑/↓ nudge it on the cursor line,
+      and a `TNE` indicator shows the hardware-envelope enable (`b0` bit0). Noise
+      pitch reads `--` on a line whose noise is muted.
+- [ ] **Phase 2 — tempo/speed editing** — edit `song[100]` (global default speed)
+      up/down; later the per-pattern `C_DELAY` (SPCCOMS 0x09) command.
+- [ ] **Phase 3 — pattern-FX commands** — author the master noise period
+      (`Ns_Base`, opcode 0x20-0x3F) and the hardware envelope (shape+period,
+      opcode 0xB2-0xBF, 3 bytes). Needs a per-row FX store: the decoded model is
+      note/sample/volume/ornament only, so `decode_channel_row`/`encode_channel`
+      currently PARSE-but-DROP these. Least-disruptive option is a sparse
+      per-pattern FX list (don't widen `cell_t` — that costs patterns). With FX
+      authored, the `E` flag and per-line noise become fully musical.
+      (Heads-up found during research: `decode_channel_row` assumes the 2-byte
+      ESAM form (0x10-0x1F); the 0x11-0x1F + envelope form is 4 bytes — scan real
+      songs for it before shipping FX, it could desync the current decoder.)
 
 ## To consider — ideas from the origin programs
 
