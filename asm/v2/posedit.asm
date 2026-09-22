@@ -353,9 +353,17 @@ dec2_to_buf:
         ld      (hl),a
         ret
 
-; buf_to_dec2: two chars at (HL) -> A (spaces count as 0); CY if not digits
+; buf_to_dec2: two chars at (HL) -> A; a lone digit ("8 " or " 8") counts as
+; itself, a blank as 0; CY if not digits
 buf_to_dec2:
+        inc     hl
         ld      a,(hl)
+        dec     hl
+        cp      ' '
+        jr      nz,.two
+        ld      a,(hl)
+        jr      .dig
+.two:   ld      a,(hl)
         call    .dig
         ret     c
         ld      b,a

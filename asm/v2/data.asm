@@ -22,7 +22,7 @@ s_tag_song:  db " SONG",0
 s_tag_edit:  db " EDIT",0
 s_tag_goto:  db " GOTO",0
 s_menu_song: db "^A Play ^L Loop ^S Save ^D Load",0
-s_menu_edit: db "^I Ins ^X Del ^Z Clr ^N New",0
+s_menu_edit: db "^I^X Row ^Z Clr ^E Smp ^R Orn",0
 s_menu_goto: db "^O^P Pos ^F Arr ^G Info ^Q Quit",0
 s_info:      db "Pos   /   Pat   /   Spd    Oct  ",0
 s_head:      db "Rw",G_VBAR,"A   seovc",G_VBAR,"B   seovc",G_VBAR,"C   seovc",0
@@ -98,6 +98,21 @@ s_si_l_counts: db "Positions    loop     patts",0
 s_si_l_bytes:  db "Song       bytes  free",0
 s_hint_si:     db " T title  A author  ENTER/Q back ",0
 
+; ---- instrument editors -----------------------------------------------------------
+s_se_smp:     db "SAMPLE ",0
+s_se_orn:     db "ORNAMENT ",0
+s_se_len:     db "Len ",0
+s_se_rep:     db "  Rep ",0
+s_se_empty:   db "(no data -- L creates it)",0
+s_se_menu:    db "^O^P sel ^L len ^R rep ^I^X ln ^Q",0
+s_se_head_s:  db "Ln  TNE  Tone ^^  Ns ^^  V  A",0   ; ^^ = a literal caret (print_at markup)
+s_se_head_o:  db "Ln  Semi",0
+s_hint_se:    db " SPACE toggle ENTER play Q back ",0
+s_hint_se2_s: db "CAPS+5678 move  0-9 A-F type",0
+s_hint_se2_o: db "CAPS+6/7 line  0-9 type  SPC +/-",0
+s_msg_selen:  db "Length (1-64):",0
+s_msg_serep:  db "Repeat line (0-63):",0
+
 ; ---- help page (lines, '*' prefix = label colour, $FF ends) -------------------
 help_text:
         db      "*TS TRACKER 2 -- KEYS",0
@@ -119,6 +134,7 @@ help_text:
         db      "A play  L loop  S save  D load",0
         db      "O/P position  F arrangement",0
         db      "G song info  N new  Q quit",0
+        db      "E samples  R ornaments",0
         db      "I/X ins/del row  Z clear chan",0
         db      0
         db      "Any key returns to the editor.",0

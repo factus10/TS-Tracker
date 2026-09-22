@@ -542,6 +542,10 @@ ed_sym:
         jp      z,cmd_info
         cp      'H'
         jp      z,cmd_help
+        cp      'E'
+        jp      z,cmd_sample
+        cp      'R'
+        jp      z,cmd_ornament
         ld      hl,s_msg_later
         call    flash_message
         jp      editor_loop

@@ -16,6 +16,10 @@ song_init:
         ld      (cur_row),a
         ld      (cur_chan),a
         ld      (cur_field),a
+        inc     a
+        ld      (cur_sample),a          ; a new/loaded song starts on sample 1 / ornament 1
+        ld      (se_sel_smp),a
+        ld      (se_sel_orn),a
         call    pos_pattern             ; A = pattern at cur_pos
         call    wp_load
         jp      update_free

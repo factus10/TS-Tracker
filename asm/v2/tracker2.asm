@@ -1,5 +1,5 @@
 ; =============================================================================
-; tracker2.asm -- TS Tracker v2 (all-assembly), Phase 1: in-memory editor
+; tracker2.asm -- TS Tracker v2 (all-assembly): SQ-style PT3 editor
 ;
 ; Build: make tracker2          -> build/v2/tracker2.tap
 ;        make tracker2-demo SONG=songs/x.pt3 -> tape that boots straight into
@@ -56,6 +56,7 @@ quit_to_basic:
         INCLUDE "dir.asm"
         INCLUDE "posedit.asm"
         INCLUDE "songinfo.asm"
+        INCLUDE "instr.asm"
         INCLUDE "data.asm"
         INCLUDE "vars.asm"
         INCLUDE "test.asm"

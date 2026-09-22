@@ -242,7 +242,8 @@ streams into the slot in place — deleting the old streams if no other pattern
 shares them, inserting the new ones, and fixing every pointer that moves
 (pattern table, 32 sample pointers, 16 ornament pointers). Edits still persist
 automatically; there is no user-visible commit. The pattern count is now bounded
-only by the slot, and the slot is 20 KB even with a clean return to BASIC:
+only by the slot. The slot started at 20 KB with a clean return to BASIC; Phases
+2 and 3 each moved its base up 2 KB to make room for code (current map below):
 
 | Region | Range | Size | Notes |
 | --- | --- | ---: | --- |
@@ -251,8 +252,8 @@ only by the slot, and the slot is 20 KB even with a clean return to BASIC:
 | **WP** working pattern (64 rows × 24 B) | `$6A00–$6FFF` | 1,536 | note, smp\|flags, env\|orn, vol\|cmd, 3 param bytes per cell; env period + noise per row |
 | **STAGE** encoder output / commit staging | `$7000–$7BFF` | 3,072 | |
 | MISC scratch (event lists, noise carriers, later the tape directory) | `$7C00–$7FFF` | 1,024 | |
-| **v2 code + tables + PTxPlay** | `$8000–$AAFF` | 11,008 | one CODE block; Phase 1 uses 9,632 B |
-| **PT3 song slot** | `$AB00–$FAFF` | **20,480** | vs 7,424 today |
+| **v2 code + tables + PTxPlay** | `$8000–$BFFF` | 16,384 | one CODE block; Phase 3 uses 15,896 B (Phase 1: 9,718 at `$AB00`, Phase 2: 13,373 at `$B800`) |
+| **PT3 song slot** | `$C000–$FAFF` | **15,104** | vs 7,424 in v1; the bundled songs are 3.0–5.5 KB |
 | Our stack, ROM tape workspace, UDG | `$FB00–$FFFF` | 1,280 | SP = `$FF00` |
 
 This supersedes the "Plan A / Plan B" split: Plan A's clean return is kept
@@ -281,9 +282,60 @@ byte-identical output by `tools/v2_codec_test.py`.
 | **0** | `asm/ui_poc.asm`: renderer, keyboard, cursor, auto-repeat, mock edit ops; `tools/mktap.py`; `make asm-poc` | 2.0 KB | **done** |
 | **1** | **Playable editor** (`asm/v2/`, `make tracker2`). Slot-is-the-model architecture; PT3 decoder/encoder/splice ported to asm and held byte-identical to the Python reference; PTxPlay in the same binary; New song; play from position / loop pattern; field-aware editing (piano, octave retune, base-32 sample, envelope, ornament, volume), rest, clear, insert/delete row, clear channel; position prev/next with automatic commit; help page; live "Free" counter | 9,718 B incl. PTxPlay | **done** — see below |
 | **2** | **Tape + arrangement** (`asm/v2/tape.asm`, `dir.asm`, `posedit.asm`, `songinfo.asm`; tests `tools/v2_tape_test.py`, `tools/v2_arrange_test.py`). EXROM LD-BYTES/SA-BYTES trampolines with BREAK caught via ERRSP (a scan ends cleanly when the tape runs out); start screen, tape scan + 9-entry directory with format detection, load by name, Save with an 8-char name + version suffix; song-info screen (title, author, speed); arrangement editor (type pattern, insert, delete, loop point, create pattern, pattern length) | +3.7 KB | **done** — see below |
-| **3** | **Instrument editors** re-skinned: samples (with `TN`, `Ns`, envelope flag, Length/Repeat) and ornaments; create/resize; preview note | +1.5 KB | next |
-| **4** | **SQ parity extras:** copy/paste pattern, transpose (`tUP/tDN`), follow-cursor playback with mute keys and VU, PT3 command column with parameter entry, row-global envelope period / noise entry, note preview on entry, de-duplicate identical streams on save, edit step | +1.5 KB | |
+| **3** | **Instrument editors** (`asm/v2/instr.asm`; test `tools/v2_instr_test.py`). Sample editor (SYM+E): per line T/N/E mixer flags, signed tone offset with accumulate, signed noise/envelope offset with accumulate, volume, amplitude slide; ornament editor (SYM+R): signed semitone per line; both: Len/Rep prompts, insert/delete line, create on first edit, fork shared blocks, ENTER-held preview through PTxPlay (envelope shape 8 at pitch when the sample uses the envelope) | +2.5 KB | **done** — see below |
+| **4** | **SQ parity extras:** copy/paste pattern, transpose (`tUP/tDN`), follow-cursor playback with mute keys and VU, PT3 command column with parameter entry, row-global envelope period / noise entry, note preview on entry, de-duplicate identical streams on save, edit step | +1.5 KB | next — needs room: 488 B free at `$C000`; take the stack region down to 256 B (`SLOT_END` → `$FE00`, +768 B) and/or move the slot once more |
 | **5** | Manual + README refresh, screenshots, release bundle; retire `tracker.c` (player unchanged) | — | |
+
+### Phase 3 result (2026-09-22)
+
+| Sample editor (Kenotron sample 1, cursor on the T flag) | Ornament editor |
+| --- | --- |
+| ![sample editor](screenshots/v2-phase3-sample.png) | ![ornament editor](screenshots/v2-phase3-ornament.png) |
+
+- **Slot moved to `$C000`** (14.75 KB song slot, 16 KB code region); the code+data
+  grew 2.5 KB to 13,621 B + 2,275 B PTxPlay = 15,896 B, 488 B free. Phase 4 needs
+  another ~1.5 KB: shrinking our 1 KB stack region to 256 B (`SLOT_END` → `$FE00`)
+  gives 768 B without touching the code region, or the slot moves up once more.
+- **The block in the slot is the model, as for patterns.** Both instrument kinds share
+  one shape (`loop, length, lines`), so one editor handles both (`se_kind`). An
+  instrument without data is created on its first edit (a one-line block appended at
+  the end of the song, or `L` creates one of the requested length); a block shared
+  with another instrument (every slot of the new-song template points at one block)
+  is forked to a private copy before the first edit; length changes and line
+  insert/delete are `slot_insert`/`slot_delete` splices at the block end or the
+  cursor line, so every pointer in the song follows. The loop (Rep) marker keeps its
+  line through inserts and deletes and is clamped when the block shrinks.
+- **Sample line fields** follow PTxPlay's `CHREGS` bit for bit: `T N E` (tone, noise
+  and envelope enables; PT3 stores them as *disable* bits, `E` in b0 bit0), the signed
+  16-bit tone offset with its accumulate flag (`^`), the signed 5-bit noise/envelope
+  offset with its accumulate flag, the volume nibble and the amplitude slide
+  (`_` none, `+` up, `-` down). SPACE toggles the flag or sign under the cursor,
+  digits roll into the number from the right, CAPS+0 zeroes it. Ornament lines are one
+  signed semitone offset each. Screen: 16 lines a page, the Rep line's number in yellow.
+- **Preview** (ENTER, held): PTxPlay is initialised on the real song (note table,
+  speed), then pointed at a private one-position song in MISC — a pattern table whose
+  three entries are a 9-byte channel-A stream (skip 64, ornament, sample, C of the
+  current octave) and an empty stream for B and C. If any line of the sample turns the
+  envelope on, the stream uses envelope shape 8 with period = tone period / 16, so
+  envelope-bass samples sound at pitch. The sample editor previews its sample with
+  ornament 0; the ornament editor previews its ornament with the pattern editor's
+  current sample. Leaving the sample editor makes its sample the one notes are
+  entered with.
+- **Verified.** `tools/v2_instr_test.py` boots Kenotron and drives every operation,
+  checking the slot after each step against a Python model of the expected block
+  (toggle, type, negate, zero, insert, delete, three lengths, repeat; create on an
+  empty sample; preview must drive the AY and hand the editor back; the ornament
+  editor likewise; a new song must fork its shared sample block on the first edit).
+  Then every original pattern must decode identically and every other instrument
+  block be byte-identical: **PASS**. `tools/v2_codec_test.py` (105 checks) and
+  `tools/v2_arrange_test.py` pass on the same build; `tools/v2_tape_test.py` passes
+  with the new load address.
+- **Found on the way:** the two-cell length/repeat prompt parsed a lone digit as tens
+  ("8" → 80); `buf_to_dec2` now right-aligns a lone digit, which also fixes the
+  arrangement editor's length prompt. `print_at` treats `^` as hot-letter markup, so a
+  literal caret in a string is written `^^`.
+- **Not in Phase 3:** VT2-style piano-key preview (the letters are the editor's
+  commands here; ENTER plays C of the current octave), and the PT2 import.
 
 ### Phase 2 result (2026-09-22)
 
@@ -387,12 +439,13 @@ byte-identical output by `tools/v2_codec_test.py`.
 
 | Path | Purpose |
 | --- | --- |
-| `asm/v2/*.asm`, `asm/v2/layout.inc`, `asm/v2/template.inc` | Phase-1 tracker: `tracker2.asm` (top level), `screen`, `keys`, `pt3dec`, `pt3enc`, `slot`, `player`, `editor`, `data`, `vars`, `test` |
+| `asm/v2/*.asm`, `asm/v2/layout.inc`, `asm/v2/template.inc` | the v2 tracker: `tracker2.asm` (top level), `screen`, `keys`, `pt3dec`, `pt3enc`, `slot`, `player`, `editor`, `tape`, `dir`, `posedit`, `songinfo`, `instr`, `data`, `vars`, `test` |
 | `tools/pt3codec.py` | PT3 pattern codec reference (decoder, canonical encoder, round-trip test, model/stream dumps) |
 | `tools/v2_codec_test.py` | Z80-vs-Python parity harness (ZEsarUX ZRCP, private port 10001) |
 | `tools/v2_ui_smoke.py` | boots the demo tape and drives the editor, saving screenshots |
 | `tools/v2_tape_test.py` | real-time tape scan/load/save through the EXROM routines (ZEsarUX `--realtape` / `--outtape`) |
 | `tools/v2_arrange_test.py` | drives the arrangement editor and song-info screen, then checks the slot structurally |
+| `tools/v2_instr_test.py` | drives the sample and ornament editors (every operation, preview, create, fork), checking the slot after each step |
 | `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |
 | `tools/mktap.py` | Wrap a raw binary in a `.tap` with a ROM-BASIC loader (also used for extra CODE blocks) |

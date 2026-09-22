@@ -73,10 +73,18 @@ play_loop_pattern:
 ; play_until_key: run PLAY at 50 Hz until any key press; mutes on exit
 play_until_key:
         xor     a
+        ld      (play_hold),a
+        call    kb_wait_none
+        jr      play_run
+; play_hold_enter: run PLAY while ENTER stays down (instrument preview)
+play_hold_enter:
+        ld      a,1
+        ld      (play_hold),a
+play_run:
+        xor     a
         ld      (play_div),a
         ld      a,$FF
         ld      (play_lastpos),a
-        call    kb_wait_none
         ld      a,5
         out     ($FE),a                 ; cyan border while playing
 .loop:  halt
@@ -114,9 +122,16 @@ play_until_key:
         ld      a,(cur_pos)
         call    put_dec2
 .keys:  call    kb_scan
+        ld      a,(play_hold)
+        or      a
+        jr      nz,.hold
         call    kb_any_now
         jr      z,.loop
-        push    ix
+        jr      .stop
+.hold:  ld      a,(kb_now+KR_ENTER)
+        and     1
+        jr      nz,.loop
+.stop:  push    ix
         push    iy
         call    MUTE
         pop     iy

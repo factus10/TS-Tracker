@@ -223,19 +223,21 @@ put_dec3:                               ; A = 0..255 -> 3 digits
         pop     af
         jr      put_dec2
 
-put_dec5:                               ; HL = 0..65535 -> 5 digits, space padded
+put_dec5:                               ; HL = 0..65535 -> 5 digits, zero padded
         ld      bc,-10000
-        call    .digit
+        call    dec_digit
+put_dec4:                               ; HL = 0..9999 -> 4 digits, zero padded
         ld      bc,-1000
-        call    .digit
+        call    dec_digit
         ld      bc,-100
-        call    .digit
+        call    dec_digit
         ld      bc,-10
-        call    .digit
+        call    dec_digit
         ld      a,l
         add     a,'0'
         jp      put_char_adv
-.digit: ld      a,'0'-1
+dec_digit:                              ; one digit of HL for the power in BC (negative)
+        ld      a,'0'-1
 .sub:   inc     a
         add     hl,bc
         jr      c,.sub

@@ -8,8 +8,8 @@
 ;   $7000-$7BFF  STAGE: encoder output / commit staging (3 KB)
 ;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, later the
 ;                tape directory)
-;   $8000-$B7FF  this program + PTxPlay (one CODE block, 14 KB)
-;   $B800-$FAFF  SLOT:  the PT3 song itself = the source of truth (16.75 KB)
+;   $8000-$BFFF  this program + PTxPlay (one CODE block, 16 KB)
+;   $C000-$FAFF  SLOT:  the PT3 song itself = the source of truth (14.75 KB)
 ;   $FB00-$FEFF  our stack (grows down from $FF00); $FF58+ UDGs (BASIC's)
 ; =============================================================================
 
@@ -23,9 +23,9 @@ AY_REG      EQU $F5
 AY_DAT      EQU $F6
 
 CODE_BASE   EQU $8000
-SLOT_BASE   EQU $B800            ; Phase 2: moved up from $AB00 for the tape/arrangement code
+SLOT_BASE   EQU $C000            ; Phase 3: moved up from $B800 (Phase 2: from $AB00) for the instrument editors
 SLOT_END    EQU $FB00
-SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 17152
+SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 15104
 
 WP_BASE     EQU $6A00
 WP_ROWS     EQU 64
@@ -46,7 +46,10 @@ TAPE_HDR    EQU MISC_BASE+176           ; 17 B  tape header (type, name10, len, 
 DIR_BUF     EQU MISC_BASE+208           ; 9 x 14 B tape directory
 DIR_MAX     EQU 9
 DIR_ENTSZ   EQU 14
-MISC_FREE   EQU MISC_BASE+336
+PV_TABLE    EQU MISC_BASE+336           ; 6 B   note preview: private pattern table (3 words)
+PV_BC       EQU MISC_BASE+342           ; 4 B   note preview: empty stream for channels B and C
+PV_A        EQU MISC_BASE+346           ; 10 B  note preview: channel A stream
+MISC_FREE   EQU MISC_BASE+360
 
 STACK_TOP   EQU $FF00
 

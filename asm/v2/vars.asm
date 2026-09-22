@@ -78,6 +78,7 @@ cm_off:        dw 0
 play_div:      db 0
 play_follow:   db 0
 play_lastpos:  db 0
+play_hold:     db 0                     ; 1 = play while ENTER is held (preview)
 
 ; ---- tape ----
 tp_flag:       db 0
@@ -109,6 +110,24 @@ ar_top:        db 0
 ar_tmp:        dw 0
 ar_tmp2:       db 0
 ar_lenbuf:     db "64"
+
+; ---- instrument editor ----
+se_kind:       db 0                     ; 0 = sample, 1 = ornament
+se_sel:        db 1
+se_sel_smp:    db 1
+se_sel_orn:    db 1
+se_line:       db 0
+se_field:      db 0
+se_top:        db 0
+se_len:        db 0
+se_rep:        db 0                     ; loop (repeat) line
+se_blk:        dw 0                     ; block address, 0 = none
+se_tmp:        db 0
+se_row:        db 0
+pv_smp:        db 0
+pv_orn:        db 0
+pv_env:        db 0
+pv_note:       db 0
 
 ; ---- test harness ----
 t_arg:         db 0
