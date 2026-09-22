@@ -98,7 +98,7 @@ HIGH_SONG_BASE := $(PLAYER_SONG_BASE_HEX)
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
 
-.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker release clean
+.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker release clean asm-poc
 
 all: smoketest pt3-player songs-tape tracker
 
@@ -278,6 +278,19 @@ release: pt3-player tracker songs-tape
 	cp $(BUILDDIR)/ts-tracker.zip release/ts-tracker.zip
 	cp $(BUILDDIR)/tracker.tap $(BUILDDIR)/pt3-player.tap $(BUILDDIR)/songs.tap release/
 	@echo "release/ts-tracker.zip ready ($$(du -h release/ts-tracker.zip | cut -f1))"
+
+# ---- asm-poc (hand-written Z80 UI renderer proof of concept) ----------------
+# See asm/ui_poc.asm and docs/redesign-plan.md. Assembles to a flat binary at
+# $8000 and wraps it in a .tap with a ROM-BASIC loader (tools/mktap.py). No
+# z88dk involved -- this is the seed of the planned all-assembly tracker.
+asm-poc: $(BUILDDIR)/asm/ui_poc.tap
+
+$(BUILDDIR)/asm/ui_poc.bin: asm/ui_poc.asm | $(BUILDDIR)
+	@mkdir -p $(BUILDDIR)/asm
+	sjasmplus asm/ui_poc.asm --sym=$(BUILDDIR)/asm/ui_poc.sym --lst=$(BUILDDIR)/asm/ui_poc.lst
+
+$(BUILDDIR)/asm/ui_poc.tap: $(BUILDDIR)/asm/ui_poc.bin tools/mktap.py
+	python3 tools/mktap.py $(BUILDDIR)/asm/ui_poc.bin 32768 $@ uipoc
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):

@@ -1,5 +1,10 @@
 # TS Tracker — status & TODO
 
+> **Sept 2026 — v2 redesign under evaluation.** An SQ-Tracker-style interface
+> and an all-assembly rewrite are proposed in [`docs/redesign-plan.md`](docs/redesign-plan.md),
+> with a working renderer proof of concept in `asm/ui_poc.asm` (`make asm-poc`).
+> Nothing below changes until that plan is approved.
+
 Work on the tracker (`src/tracker.c`). The player (`src/pt3_player.c`) is
 shipped and stable. For how the editor is built, see `docs/architecture.md`;
 for emulator-verification lore see `docs/zesarux-screenshots.md`.
