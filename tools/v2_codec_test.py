@@ -20,7 +20,7 @@ import pt3codec as C
 
 ZESARUX = "/Applications/zesarux.app/Contents/MacOS/zesarux"
 PORT = 10001            # our own ZRCP port: never touches an emulator the user launched
-CODE_BASE, SLOT_BASE, WP_BASE, STAGE_BASE = 0x8000, 0xAB00, 0x6A00, 0x7000
+CODE_BASE, SLOT_BASE, WP_BASE, STAGE_BASE = 0x8000, 0xB800, 0x6A00, 0x7000   # overridden from the .sym below
 TRAP, SP_TOP = 0x5B00, 0xFEFE
 DEFAULT_SONGS = [
     "songs/3BIT - Debugger - SPRLZ4Ev2004.pt3",
@@ -177,6 +177,8 @@ def main():
             "num_pats", "song_len", "enc_off", "enc_len", "enc_total", "enc_err", "wp_old_bytes", "wp_pat"]
     missing = [n for n in need if n not in S]
     if missing: sys.exit(f"symbols missing from .sym: {missing}")
+    global SLOT_BASE, WP_BASE, STAGE_BASE
+    SLOT_BASE, WP_BASE, STAGE_BASE = S["SLOT_BASE"], S["WP_BASE"], S["STAGE_BASE"]
 
     proc, z = launch()
     fails = 0

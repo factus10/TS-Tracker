@@ -280,10 +280,49 @@ byte-identical output by `tools/v2_codec_test.py`.
 | --- | --- | ---: | --- |
 | **0** | `asm/ui_poc.asm`: renderer, keyboard, cursor, auto-repeat, mock edit ops; `tools/mktap.py`; `make asm-poc` | 2.0 KB | **done** |
 | **1** | **Playable editor** (`asm/v2/`, `make tracker2`). Slot-is-the-model architecture; PT3 decoder/encoder/splice ported to asm and held byte-identical to the Python reference; PTxPlay in the same binary; New song; play from position / loop pattern; field-aware editing (piano, octave retune, base-32 sample, envelope, ornament, volume), rest, clear, insert/delete row, clear channel; position prev/next with automatic commit; help page; live "Free" counter | 9,718 B incl. PTxPlay | **done** — see below |
-| **2** | **Tape + arrangement.** Port the EXROM LD-BYTES/SA-BYTES trampolines and directory scan; Save with filename prompt + version suffix; Song/info screen (title, author, speed); **position editor** (insert/delete/replace/loop/create pattern, pattern length) | +2.0 KB | next |
-| **3** | **Instrument editors** re-skinned: samples (with `TN`, `Ns`, envelope flag, Length/Repeat) and ornaments; create/resize; preview note | +1.5 KB | |
+| **2** | **Tape + arrangement** (`asm/v2/tape.asm`, `dir.asm`, `posedit.asm`, `songinfo.asm`; tests `tools/v2_tape_test.py`, `tools/v2_arrange_test.py`). EXROM LD-BYTES/SA-BYTES trampolines with BREAK caught via ERRSP (a scan ends cleanly when the tape runs out); start screen, tape scan + 9-entry directory with format detection, load by name, Save with an 8-char name + version suffix; song-info screen (title, author, speed); arrangement editor (type pattern, insert, delete, loop point, create pattern, pattern length) | +3.7 KB | **done** — see below |
+| **3** | **Instrument editors** re-skinned: samples (with `TN`, `Ns`, envelope flag, Length/Repeat) and ornaments; create/resize; preview note | +1.5 KB | next |
 | **4** | **SQ parity extras:** copy/paste pattern, transpose (`tUP/tDN`), follow-cursor playback with mute keys and VU, PT3 command column with parameter entry, row-global envelope period / noise entry, note preview on entry, de-duplicate identical streams on save, edit step | +1.5 KB | |
 | **5** | Manual + README refresh, screenshots, release bundle; retire `tracker.c` (player unchanged) | — | |
+
+### Phase 2 result (2026-09-22)
+
+| Tape directory after a scan (PT2 blocks listed as `?`) | Arrangement editor | Song info |
+| --- | --- | --- |
+| ![directory](screenshots/v2-phase2-directory.png) | ![arrangement](screenshots/v2-phase2-arrangement.png) | ![song info](screenshots/v2-phase2-songinfo.png) |
+
+
+- **Slot moved to `$B800`** (16.75 KB song slot, 14 KB code region). The pattern-table
+  pointer joined the splice fix-up set, since position-list edits insert bytes below the
+  table. Phase 2 ends at 13,418 B with 918 B free; Phases 3–4 will need a code diet or one
+  more slot move.
+- **Tape.** `tape.asm` pages the EXROM in and calls R_TAPE / W_TAPE exactly as v1 did, but
+  hooks ERRSP during the call so the ROM's BREAK error returns to us instead of dropping
+  to BASIC — on real hardware a scan can only end by pressing SPACE when the tape runs
+  out. Non-matching blocks are skipped by loading them into the (scratch) slot; VERIFY
+  is used only for blocks bigger than the slot, and its inevitable mismatch is ignored.
+  Only PT3 (`ProTracker 3.x` or `Vortex Tracker` exports) may be loaded for editing.
+- **Arrangement editor** (SYM+F) edits the PT3 position list in place: every insert /
+  delete / new-pattern is a `slot_insert` / `slot_delete` splice, so all pointers move.
+  Creating a pattern appends a 6-byte table entry plus an empty 64-row stream; pattern
+  length is edited here too (rows past the new length are blanked).
+- **Verified.** `tools/v2_arrange_test.py` drives every arrangement and song-info
+  operation on Kenotron and then checks structurally that all 22 original patterns still
+  decode identically, every sample and ornament block is byte-identical, and the new
+  pattern is a clean 32-row pattern: **PASS**. `tools/v2_codec_test.py` still passes on
+  the Phase-2 build. `tools/v2_tape_test.py` scans, loads and saves through the real
+  EXROM routines with ZEsarUX playing the tape in real time (`--realtape`; the
+  emulator's instant-load traps only serve the ROM's own LOAD): **PASS** — the loader
+  skips the blocks ahead of the target by name and loads it byte-identically; the
+  saved block comes back with the right header (`SONG_04 01`, load address `$B800`),
+  identical data, and decodes cleanly. (The emulator's `--outtape` capture does fire
+  for our W_TAPE call, so saves are instant there; loads are real time.)
+- **Phase-1 bug fixed on the way:** the decoder and encoder left IY pointing into the
+  working pattern; the ROM's keyboard interrupt writes system variables relative to IY,
+  so key presses could corrupt pattern data. Both now preserve IY.
+- **Not in Phase 2:** PT2 import (see the assessment in the session notes: convert on
+  load, tracked for after Phase 3), a "song modified" indicator, and de-duplication of
+  identical streams on save.
 
 ### Phase 1 result (2026-09-22)
 
@@ -352,6 +391,8 @@ byte-identical output by `tools/v2_codec_test.py`.
 | `tools/pt3codec.py` | PT3 pattern codec reference (decoder, canonical encoder, round-trip test, model/stream dumps) |
 | `tools/v2_codec_test.py` | Z80-vs-Python parity harness (ZEsarUX ZRCP, private port 10001) |
 | `tools/v2_ui_smoke.py` | boots the demo tape and drives the editor, saving screenshots |
+| `tools/v2_tape_test.py` | real-time tape scan/load/save through the EXROM routines (ZEsarUX `--realtape` / `--outtape`) |
+| `tools/v2_arrange_test.py` | drives the arrangement editor and song-info screen, then checks the slot structurally |
 | `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |
 | `tools/mktap.py` | Wrap a raw binary in a `.tap` with a ROM-BASIC loader (also used for extra CODE blocks) |

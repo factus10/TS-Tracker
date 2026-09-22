@@ -130,6 +130,11 @@ enc_carriers:
 
 ; ---- enc_channel: channel (enc_ch) -> stream at (enc_out) --------------------
 enc_channel:
+        push    iy                      ; used as the cell pointer below; ISR needs it back
+        call    enc_channel_
+        pop     iy
+        ret
+enc_channel_:
         ; pass 1: EV_ROWS = rows with an event on this channel
         xor     a
         ld      (enc_n),a

@@ -79,5 +79,36 @@ play_div:      db 0
 play_follow:   db 0
 play_lastpos:  db 0
 
+; ---- tape ----
+tp_flag:       db 0
+tp_dest:       dw 0
+tp_len:        dw 0
+tp_sp:         dw 0
+tp_errsp:      dw 0
+tp_decr:       db 0
+tp_hsr:        db 0
+dir_count:     db 0
+ld_idx:        db 0
+ld_entry:      dw 0
+de_idx:        db 0
+de_ent:        dw 0
+save_name:     db "SONG    "
+save_version:  db 1
+
+; ---- text prompt ----
+pt_buf:        dw 0
+pt_len:        db 0
+pt_pos:        db 0
+pt_row:        db 0
+pt_col:        db 0
+
+; ---- arrangement editor ----
+ar_cur:        db 0
+ar_typed:      db 0
+ar_top:        db 0
+ar_tmp:        dw 0
+ar_tmp2:       db 0
+ar_lenbuf:     db "64"
+
 ; ---- test harness ----
 t_arg:         db 0

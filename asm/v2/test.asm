@@ -22,3 +22,9 @@ t_commit:                               ; mark dirty and commit the WP into the 
         ld      a,1
         ld      (wp_dirty),a
         jp      commit_pattern
+
+t_directory:                            ; harness: DIR_BUF/dir_count prefilled -> directory screen,
+        ld      sp,STACK_TOP            ; then continue exactly like start does after screen_start
+        call    screen_directory
+        call    redraw_all
+        jp      editor_loop

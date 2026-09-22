@@ -1,9 +1,10 @@
 # TS Tracker — status & TODO
 
 > **Sept 2026 — v2 (all-assembly, SQ-Tracker-style) is in progress.** Plan and
-> status: [`docs/redesign-plan.md`](docs/redesign-plan.md). Phase 1 (playable
-> in-memory editor, `make tracker2`) is done and codec-verified against every
-> bundled song; Phase 2 (tape I/O + position editor) is next. The C tracker
+> status: [`docs/redesign-plan.md`](docs/redesign-plan.md). Phases 1 (playable
+> editor, codec-verified against every bundled song) and 2 (tape load/save,
+> directory, arrangement editor, song info) are done; Phase 3 (instrument
+> editors) is next. The C tracker
 > below is now **tracker-classic**: kept building until v2 reaches parity, no
 > new features. Its backlog items move to the v2 phases.
 

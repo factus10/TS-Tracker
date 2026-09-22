@@ -170,6 +170,9 @@ measure_max:
 ; fx_mode 1 = delete: ptr >= fx_off+fx_cnt     -> ptr -= fx_cnt
 ;                     fx_off <= ptr < fx_off+cnt -> ptr = fx_off
 fix_all:
+        ld      hl,SLOT_BASE+H_PATPTR   ; the table pointer itself (position-list edits
+        ld      b,1                     ; insert bytes below the table)
+        call    fix_run
         ld      a,(num_pats)
         ld      b,a
         add     a,a
@@ -589,9 +592,13 @@ new_song:
 
 ; ---- slot_has_song: Z set if the slot starts with "ProTracker 3." -------------
 slot_has_song:
-        ld      hl,SLOT_BASE
         ld      de,sig_pt3
         ld      b,13
+        call    .cmp
+        ret     z
+        ld      de,sig_vt2
+        ld      b,14
+.cmp:   ld      hl,SLOT_BASE
 .l:     ld      a,(de)
         cp      (hl)
         ret     nz

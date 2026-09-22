@@ -300,6 +300,7 @@ $(BUILDDIR)/asm/ui_poc.tap: $(BUILDDIR)/asm/ui_poc.bin tools/mktap.py
 # the editor. See docs/redesign-plan.md.
 V2DIR = $(BUILDDIR)/v2
 V2SRC = $(wildcard asm/v2/*.asm) $(wildcard asm/v2/*.inc)
+V2_SLOT_HEX = B800   # must match SLOT_BASE in asm/v2/layout.inc
 
 tracker2: $(V2DIR)/tracker2.tap
 
@@ -317,7 +318,7 @@ $(V2DIR)/tracker2.tap: $(V2DIR)/tracker2.bin tools/mktap.py
 tracker2-demo: $(V2DIR)/tracker2.bin tools/mktap.py
 	@test -n "$(SONG)" || { echo "usage: make tracker2-demo SONG=path/to/song.pt3"; exit 1; }
 	@cp "$(SONG)" $(V2DIR)/demo_song.pt3
-	python3 tools/mktap.py $(V2DIR)/tracker2.bin 32768 $(V2DIR)/tracker2-demo.tap tracker2 $(V2DIR)/demo_song.pt3@0xAB00
+	python3 tools/mktap.py $(V2DIR)/tracker2.bin 32768 $(V2DIR)/tracker2-demo.tap tracker2 $(V2DIR)/demo_song.pt3@0x$(V2_SLOT_HEX)
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):

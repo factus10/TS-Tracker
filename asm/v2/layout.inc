@@ -8,8 +8,8 @@
 ;   $7000-$7BFF  STAGE: encoder output / commit staging (3 KB)
 ;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, later the
 ;                tape directory)
-;   $8000-$AAFF  this program + PTxPlay (one CODE block)
-;   $AB00-$FAFF  SLOT:  the PT3 song itself = the source of truth (20 KB)
+;   $8000-$B7FF  this program + PTxPlay (one CODE block, 14 KB)
+;   $B800-$FAFF  SLOT:  the PT3 song itself = the source of truth (16.75 KB)
 ;   $FB00-$FEFF  our stack (grows down from $FF00); $FF58+ UDGs (BASIC's)
 ; =============================================================================
 
@@ -23,9 +23,9 @@ AY_REG      EQU $F5
 AY_DAT      EQU $F6
 
 CODE_BASE   EQU $8000
-SLOT_BASE   EQU $AB00
+SLOT_BASE   EQU $B800            ; Phase 2: moved up from $AB00 for the tape/arrangement code
 SLOT_END    EQU $FB00
-SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 20480
+SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 17152
 
 WP_BASE     EQU $6A00
 WP_ROWS     EQU 64
@@ -42,7 +42,11 @@ EV_ROWS     EQU MISC_BASE               ; 64 B  encoder: rows carrying an event 
 NZ_CARRIER  EQU MISC_BASE+64            ; 64 B  encoder: channel carrying the row's noise ($FF none)
 SCRATCH_ROW EQU MISC_BASE+128           ; 24 B  dummy row for skip-decoding
 LOOP_LIST   EQU MISC_BASE+160           ; 2 B   private position list for "loop pattern"
-MISC_FREE   EQU MISC_BASE+176
+TAPE_HDR    EQU MISC_BASE+176           ; 17 B  tape header (type, name10, len, p1, p2)
+DIR_BUF     EQU MISC_BASE+208           ; 9 x 14 B tape directory
+DIR_MAX     EQU 9
+DIR_ENTSZ   EQU 14
+MISC_FREE   EQU MISC_BASE+336
 
 STACK_TOP   EQU $FF00
 

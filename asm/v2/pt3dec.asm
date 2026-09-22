@@ -129,6 +129,7 @@ dec_side:
 ; Parses one event through its terminator and any command parameters.
 ; Returns CY set if the stream ended (0x00). Preserves IX, HL, DE.
 dec_event:
+        push    iy                      ; the ROM ISR needs IY=$5C3A: restore it on exit
         push    hl
         push    de
         ld      (dec_glob),de
@@ -264,12 +265,14 @@ dec_event:
         ld      (ix+1),b
         pop     de
         pop     hl
+        pop     iy
         or      a                       ; CY clear
         ret
 .end:   ld      (ix+0),c
         ld      (ix+1),b
         pop     de
         pop     hl
+        pop     iy
         scf
         ret
 

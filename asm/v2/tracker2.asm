@@ -26,42 +26,9 @@ start:
         call    song_init
         jr      .go
 .no_song:
-        call    splash                  ; N = new_song (runs song_init) / Q = quit
+        call    screen_start            ; S scan tape / N new song / Q quit
 .go:    call    redraw_all
         jp      editor_loop
-
-; ---- splash: N = new song, Q = quit ------------------------------------------
-splash:
-        ld      a,A_VALUE
-        ld      (hot_attr),a
-        ld      bc,(6<<8)|10
-        ld      hl,s_splash1
-        ld      a,A_VALUE
-        call    print_at
-        ld      bc,(8<<8)|3
-        ld      hl,s_splash2
-        ld      a,A_LABEL
-        call    print_at
-        ld      bc,(9<<8)|2
-        ld      hl,s_splash3
-        ld      a,A_LABEL
-        call    print_at
-        ld      a,A_MENU_HOT
-        ld      (hot_attr),a
-        ld      bc,(14<<8)|5
-        ld      hl,s_splash4
-        ld      a,A_MENU_TXT
-        call    print_at
-        call    kb_wait_none
-.w:     call    kb_wait_key
-        call    kb_letter_edge
-        cp      'N'
-        jr      z,.new
-        cp      'Q'
-        jr      nz,.w
-        jp      quit_to_basic
-.new:   call    kb_wait_none
-        jp      new_song
 
 quit_to_basic:
         di
@@ -85,6 +52,10 @@ quit_to_basic:
         INCLUDE "slot.asm"
         INCLUDE "player.asm"
         INCLUDE "editor.asm"
+        INCLUDE "tape.asm"
+        INCLUDE "dir.asm"
+        INCLUDE "posedit.asm"
+        INCLUDE "songinfo.asm"
         INCLUDE "data.asm"
         INCLUDE "vars.asm"
         INCLUDE "test.asm"

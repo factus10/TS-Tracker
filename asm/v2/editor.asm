@@ -518,6 +518,10 @@ ed_sym:
         jp      z,cmd_play
         cp      'L'
         jp      z,cmd_loop
+        cp      'S'
+        jp      z,cmd_save
+        cp      'D'
+        jp      z,cmd_load
         cp      'N'
         jp      z,cmd_new
         cp      'Q'
@@ -532,6 +536,10 @@ ed_sym:
         jp      z,cmd_prev_pos
         cp      'P'
         jp      z,cmd_next_pos
+        cp      'F'
+        jp      z,cmd_arrange
+        cp      'G'
+        jp      z,cmd_info
         cp      'H'
         jp      z,cmd_help
         ld      hl,s_msg_later
