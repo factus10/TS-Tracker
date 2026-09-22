@@ -98,7 +98,7 @@ HIGH_SONG_BASE := $(PLAYER_SONG_BASE_HEX)
 # Pick which .pt3 to bundle into pt3-mvp.
 SONG ?= songs/3BIT - Debugger - SPRLZ4Ev2004.pt3
 
-.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker release clean asm-poc
+.PHONY: all smoketest pt3-mvp pt3-player songs-tape tracker release clean asm-poc tracker2 tracker2-demo
 
 all: smoketest pt3-player songs-tape tracker
 
@@ -291,6 +291,33 @@ $(BUILDDIR)/asm/ui_poc.bin: asm/ui_poc.asm | $(BUILDDIR)
 
 $(BUILDDIR)/asm/ui_poc.tap: $(BUILDDIR)/asm/ui_poc.bin tools/mktap.py
 	python3 tools/mktap.py $(BUILDDIR)/asm/ui_poc.bin 32768 $@ uipoc
+
+# ---- tracker2 (v2: all-assembly SQ-style editor, Phase 1) ---------------------
+# asm/v2/tracker2.asm includes the other asm/v2 modules and a generated
+# include-mode PTxPlay (build/v2/ptxplay.inc) so player + editor are ONE code
+# block at $8000. tracker2-demo appends a song as a second CODE block loaded
+# straight into the song slot ($AB00); the program detects it and boots into
+# the editor. See docs/redesign-plan.md.
+V2DIR = $(BUILDDIR)/v2
+V2SRC = $(wildcard asm/v2/*.asm) $(wildcard asm/v2/*.inc)
+
+tracker2: $(V2DIR)/tracker2.tap
+
+$(V2DIR)/ptxplay.inc: vendor/PTxPlay/PTxPlay.asm tools/build_ptxplay_asm.py | $(BUILDDIR)
+	@mkdir -p $(V2DIR)
+	python3 tools/build_ptxplay_asm.py INC $@ 1
+
+$(V2DIR)/tracker2.bin: $(V2SRC) $(V2DIR)/ptxplay.inc
+	sjasmplus asm/v2/tracker2.asm --sym=$(V2DIR)/tracker2.sym --lst=$(V2DIR)/tracker2.lst
+
+$(V2DIR)/tracker2.tap: $(V2DIR)/tracker2.bin tools/mktap.py
+	python3 tools/mktap.py $(V2DIR)/tracker2.bin 32768 $@ tracker2
+
+# make tracker2-demo SONG="songs/3BIT - Debugger - SPRLZ4Ev2004.pt3"
+tracker2-demo: $(V2DIR)/tracker2.bin tools/mktap.py
+	@test -n "$(SONG)" || { echo "usage: make tracker2-demo SONG=path/to/song.pt3"; exit 1; }
+	@cp "$(SONG)" $(V2DIR)/demo_song.pt3
+	python3 tools/mktap.py $(V2DIR)/tracker2.bin 32768 $(V2DIR)/tracker2-demo.tap tracker2 $(V2DIR)/demo_song.pt3@0xAB00
 
 # ---- housekeeping ------------------------------------------------------------
 $(BUILDDIR):

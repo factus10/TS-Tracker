@@ -17,8 +17,13 @@ RAM between them.
 import pathlib, re, sys
 
 origin_hex = sys.argv[1].upper() if len(sys.argv) > 1 else 'C000'
-if not re.fullmatch(r'[0-9A-F]{4}', origin_hex):
-    sys.exit(f'bad origin hex {origin_hex!r}: want a 4-char hex string')
+# "INC" = include mode for the v2 all-asm tracker: no DEVICE/ORG lines, so the
+# file can be INCLUDEd at the tail of another sjasmplus source and assembled
+# into the same binary (PTxPlay is position-dependent but the assembler
+# resolves it at whatever address the include lands).
+include_mode = origin_hex == 'INC'
+if not include_mode and not re.fullmatch(r'[0-9A-F]{4}', origin_hex):
+    sys.exit(f'bad origin hex {origin_hex!r}: want a 4-char hex string or INC')
 
 src_path = pathlib.Path('vendor/PTxPlay/PTxPlay.asm')
 # Output path is overridable (arg 2) so the player and tracker can each build
@@ -75,8 +80,7 @@ prelude = [
     '; Universal PT2/PT3 player by S.V. Bulba; assembled with sjasmplus to a',
     '; flat .bin that the C side memcpys to a fixed address at runtime.',
     '',
-    '    DEVICE NOSLOT64K',
-    '',
+    *([] if include_mode else ['    DEVICE NOSLOT64K', '']),
     'ZX     EQU 0',
     'MSX    EQU 0',
     'RC     EQU 0',
@@ -95,8 +99,10 @@ prelude = [
     # decoder (the tracker never plays PT2). The player builds with PT3Only=0.
     f'PT3Only       EQU {1 if pt3only else 0}',
     '',
-    f'    ORG ${origin_hex}        ; final runtime address; the .bin is position-dependent',
-    '                     ; (self-modifying) so this must match the LOAD address.',
+    *([f'; (include mode: assembled at the including file\'s current address)']
+      if include_mode else
+      [f'    ORG ${origin_hex}        ; final runtime address; the .bin is position-dependent',
+       '                     ; (self-modifying) so this must match the LOAD address.']),
     '',
     '; The original used MDLADDR as a fallback song-data label after the code,',
     '; for the START+0 entry. We never use START+0 (callers always pass HL),',

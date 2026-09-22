@@ -1,9 +1,11 @@
 # TS Tracker — status & TODO
 
-> **Sept 2026 — v2 redesign under evaluation.** An SQ-Tracker-style interface
-> and an all-assembly rewrite are proposed in [`docs/redesign-plan.md`](docs/redesign-plan.md),
-> with a working renderer proof of concept in `asm/ui_poc.asm` (`make asm-poc`).
-> Nothing below changes until that plan is approved.
+> **Sept 2026 — v2 (all-assembly, SQ-Tracker-style) is in progress.** Plan and
+> status: [`docs/redesign-plan.md`](docs/redesign-plan.md). Phase 1 (playable
+> in-memory editor, `make tracker2`) is done and codec-verified against every
+> bundled song; Phase 2 (tape I/O + position editor) is next. The C tracker
+> below is now **tracker-classic**: kept building until v2 reaches parity, no
+> new features. Its backlog items move to the v2 phases.
 
 Work on the tracker (`src/tracker.c`). The player (`src/pt3_player.c`) is
 shipped and stable. For how the editor is built, see `docs/architecture.md`;

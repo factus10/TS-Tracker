@@ -12,3 +12,6 @@
 
 # anything we deliberately keep out of public history
 /origin/
+
+# python bytecode from the host tools
+__pycache__/

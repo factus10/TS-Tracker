@@ -31,6 +31,22 @@ full guide and a step-by-step "your first tune" walkthrough.
 | ![Ornament editor — arpeggio chords](docs/screenshots/ts-tracker-ornament-editor.png) | ![TS Tracker title screen](docs/screenshots/ts-tracker-splash.png) |
 | Build the classic arpeggio "chords" (here `0 +4 +7`). | Boots straight to a Sinclair-style menu. |
 
+## TS Tracker v2 (in progress)
+
+A from-scratch **assembly-language** rewrite of the editor with an
+SQ-Tracker-style interface is under way in [`asm/v2/`](asm/v2/) — see
+[`docs/redesign-plan.md`](docs/redesign-plan.md) for the assessment, plan and
+status. Phase 1 (a playable in-memory editor whose PT3 codec is verified
+byte-for-byte against every bundled song) builds with:
+
+```sh
+make tracker2                                      # build/v2/tracker2.tap
+make tracker2-demo SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"
+```
+
+The C editor described below is now *tracker-classic* and stays until v2
+reaches feature parity.
+
 ## What it does
 
 - Boots to a Sinclair-style menu (TIMEX banner, status line, INVERSE-key

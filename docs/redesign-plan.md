@@ -229,45 +229,88 @@ Verified from the HOME ROM listing (`NEW` at `$0D7F`–): the 2068 keeps its
 **BASIC machine stack at `$6000`–`$61FF`** (`MSTBOT` = `$6200`), the dispatcher
 above it, `CHANS` at `$6840` and the BASIC program (`PROG`) at `$6856`. The v1
 editor overwrote all of this with its model at `$6000`, which is why it never
-returned to BASIC cleanly. Two options:
+returned to BASIC cleanly.
 
-**Plan A — clean return to BASIC (recommended to start)**
+### Phase-1 design change: the song slot *is* the model
+
+v1 decoded every pattern into an 8 KB RAM model (14 patterns max — and every
+bundled song has 13–31 patterns, so v1 silently dropped the rest). v2 keeps the
+PT3 byte stream in the slot as the single source of truth and decodes **one
+pattern at a time** into a 1.5 KB working buffer (`WP`). Leaving the pattern
+(or playing/saving) re-encodes it canonically and **splices** the new channel
+streams into the slot in place — deleting the old streams if no other pattern
+shares them, inserting the new ones, and fixing every pointer that moves
+(pattern table, 32 sample pointers, 16 ornament pointers). Edits still persist
+automatically; there is no user-visible commit. The pattern count is now bounded
+only by the slot, and the slot is 20 KB even with a clean return to BASIC:
 
 | Region | Range | Size | Notes |
 | --- | --- | ---: | --- |
 | Display file + attributes | `$4000–$5AFF` | 6,912 | |
-| Printer buffer → keyboard/UI scratch | `$5B00–$5BFF` | 256 | unused by us otherwise |
-| System variables, SYSCON | `$5C00–$5FFF` | 1,024 | keep |
-| BASIC stack, dispatcher, loader | `$6000–$69FF` | 2,560 | keep intact → `Quit` returns to BASIC |
-| FX side-table, tape directory, editor state, clipboard | `$6A00–$7FFF` | 5,632 | today's BSS, moved out of the code image |
-| **v2 code + tables + PTxPlay** | `$8000–$AAFF` | 11,008 | one CODE block |
-| **Decoded model** | `$AB00–$CAFF` | 8,192 | 14 patterns × 576 B (3-byte cells) |
-| **PT3 song slot** | `$CB00–$FAFF` | **12,288** | vs 7,424 today |
+| System variables, BASIC stack, dispatcher, loader | `$5B00–$69FF` | 3,840 | untouched → `Quit` returns to BASIC |
+| **WP** working pattern (64 rows × 24 B) | `$6A00–$6FFF` | 1,536 | note, smp\|flags, env\|orn, vol\|cmd, 3 param bytes per cell; env period + noise per row |
+| **STAGE** encoder output / commit staging | `$7000–$7BFF` | 3,072 | |
+| MISC scratch (event lists, noise carriers, later the tape directory) | `$7C00–$7FFF` | 1,024 | |
+| **v2 code + tables + PTxPlay** | `$8000–$AAFF` | 11,008 | one CODE block; Phase 1 uses 9,632 B |
+| **PT3 song slot** | `$AB00–$FAFF` | **20,480** | vs 7,424 today |
 | Our stack, ROM tape workspace, UDG | `$FB00–$FFFF` | 1,280 | SP = `$FF00` |
 
-**Plan B — reset on quit (what v1 effectively does)** — model at `$6000–$7FFF`,
-song slot `$AB00–$FAFF` = **20,480 B**. One constant apart from Plan A; can be
-switched later once we know how much slot real users need.
+This supersedes the "Plan A / Plan B" split: Plan A's clean return is kept
+*and* Plan B's 20 KB slot is obtained, because the decoded model no longer
+needs 8 KB of its own.
 
-Open point: the PoC uses a 4-byte cell (note, sample, env|orn, vol|cmd) so the
-command column is representable; that is 768 B per pattern (14 patterns =
-10.5 KB, slot 9.7 KB under Plan A). Alternative: keep v1's 3-byte cell and the
-sparse FX side table, and store commands there. Decide in Phase 1 once the
-codec is ported; both fit.
+### Codec grammar — what v1 got wrong, verified against PTxPlay
+
+Reading PTxPlay's decoder (`PD_LP2`) and the real songs showed three defects in
+v1's codec that v2's must not repeat (see `tools/pt3codec.py`, the reference):
+
+- `0x00`, not `0xD0`, ends a pattern (checked on channel A when its skip
+  expires); `0xD0` is an *empty event* (parameters only, no new note).
+- `0x11–0x1F` is the 4-byte envelope+sample form; `0x10` is the 2-byte form.
+- Special-command parameters (glissando, portamento, speed, …) follow the row
+  terminator, not the command byte.
+
+Every bundled song (including two exported by Vortex Tracker) round-trips
+through the Python reference codec model-for-model; the Z80 codec is held to
+byte-identical output by `tools/v2_codec_test.py`.
 
 ## 5. Phased plan — every phase ends in a loadable tape
 
-| Phase | Deliverable | Size est. | Notes |
+| Phase | Deliverable | Size | Status |
 | --- | --- | ---: | --- |
-| **0 — done** | `asm/ui_poc.asm`: renderer, keyboard, cursor, auto-repeat, mock edit ops; `tools/mktap.py`; `make asm-poc` | 2.0 KB | this branch |
-| **1** | **Playable editor.** Real cell model + PT3 decoder/encoder/rebuild ported to asm; PTxPlay assembled into the same binary; `New song`; Play / Loop pattern; field-aware editing; insert/delete row; octave; help page | +4.5 KB | codec parity test (§6) is the gate |
-| **2** | **Tape + arrangement.** Port the EXROM LD-BYTES/SA-BYTES trampolines and directory scan; Save with filename prompt + version suffix; Song/info screen; **position editor** (insert/delete/replace/loop/create pattern) | +2.0 KB | first tape that can replace v1 for authoring |
-| **3** | **Instrument editors** re-skinned: samples (with `TN`, `Ns`, envelope flag, Length/Repeat) and ornaments; create/resize; preview note | +1.5 KB | port `instr_resize` / `instr_ensure_private` logic |
-| **4** | **SQ parity extras:** copy/paste pattern, transpose channel/pattern (`tUP/tDN`), clear pattern, follow-cursor playback with mute keys and VU, PT3 command column with parameter entry, hardware envelope (un-parks the deferred Phase-3b work) | +1.5 KB | |
+| **0** | `asm/ui_poc.asm`: renderer, keyboard, cursor, auto-repeat, mock edit ops; `tools/mktap.py`; `make asm-poc` | 2.0 KB | **done** |
+| **1** | **Playable editor** (`asm/v2/`, `make tracker2`). Slot-is-the-model architecture; PT3 decoder/encoder/splice ported to asm and held byte-identical to the Python reference; PTxPlay in the same binary; New song; play from position / loop pattern; field-aware editing (piano, octave retune, base-32 sample, envelope, ornament, volume), rest, clear, insert/delete row, clear channel; position prev/next with automatic commit; help page; live "Free" counter | 9,718 B incl. PTxPlay | **done** — see below |
+| **2** | **Tape + arrangement.** Port the EXROM LD-BYTES/SA-BYTES trampolines and directory scan; Save with filename prompt + version suffix; Song/info screen (title, author, speed); **position editor** (insert/delete/replace/loop/create pattern, pattern length) | +2.0 KB | next |
+| **3** | **Instrument editors** re-skinned: samples (with `TN`, `Ns`, envelope flag, Length/Repeat) and ornaments; create/resize; preview note | +1.5 KB | |
+| **4** | **SQ parity extras:** copy/paste pattern, transpose (`tUP/tDN`), follow-cursor playback with mute keys and VU, PT3 command column with parameter entry, row-global envelope period / noise entry, note preview on entry, de-duplicate identical streams on save, edit step | +1.5 KB | |
 | **5** | Manual + README refresh, screenshots, release bundle; retire `tracker.c` (player unchanged) | — | |
 
-Total ≈ 11.5 KB, inside the `$8000–$AAFF` budget with ~0.5 KB spare; if it
-runs over, the model start moves up a page — a one-line change.
+### Phase 1 result (2026-09-22)
+
+![Phase 1 editor on Kenotron, after entering E-4, C-3 and a rest](screenshots/v2-phase1-editor.png)
+
+- **Codec parity: PASS.** `tools/v2_codec_test.py` loads the v2 binary into a
+  ZEsarUX TS2068, puts each of the five bundled songs into the slot and, for all
+  **100 patterns**, checks that the Z80 decoder's working-pattern buffer is
+  byte-identical to the Python reference model and that the Z80 encoder's
+  three streams are byte-identical to the canonical Python encoding. It then
+  edits one cell of pattern 1 and commits: every other pattern still decodes
+  identically, every sample and ornament block is unchanged, and pattern 1
+  carries the edit.
+- **UI smoke: PASS.** `tools/v2_ui_smoke.py` boots the demo tape, drives the
+  editor through the keyboard matrix (cursor, notes, octave, rest, position
+  next/prev, help, play/stop) and screenshots each step; edits survive the
+  commit-and-reload across positions.
+- **Size.** 7,443 B of editor code+data + 2,275 B PTxPlay = 9,718 B, leaving
+  1,290 B before the slot at `$AB00`. Phases 2–4 estimate ~5 KB more, so the
+  slot base will have to move up by ~4 KB (slot 20 KB → 16 KB, still more than
+  twice v1's) or the code go on a diet; decide at Phase 2.
+- **Deliberately not in Phase 1:** the command field is read-only, the row
+  globals (envelope period, noise) are display-only, pattern length cannot be
+  changed, there is no note preview sound on entry (v1 had one) and no undo.
+  Committing a pattern whose streams were shared with other patterns gives it
+  private copies, so the song grows by the shared bytes until a save-time
+  de-duplication lands (Phase 4).
 
 ## 6. How we keep it correct
 
@@ -292,8 +335,8 @@ runs over, the model start moves up a page — a one-line change.
 ## 7. Decisions needed before Phase 1
 
 1. **Go / no-go on the full assembly rewrite.** Recommendation: go.
-2. **Memory Plan A (clean BASIC return, 12 KB slot) or Plan B (reset on quit,
-   20 KB slot).** Recommendation: A first; it is one constant to switch.
+2. ~~Memory Plan A or Plan B~~ — resolved in Phase 1: the slot-is-the-model design
+   gives the clean return *and* the 20 KB slot (§4).
 3. **Row numbers decimal (SQ, `00–63`) or hex (v1, `00–3F`).** The PoC uses
    decimal. Either is trivial.
 4. **Menu commands on SYMBOL SHIFT + letter** (recommended; frees the piano)
@@ -305,6 +348,11 @@ runs over, the model start moves up a page — a one-line change.
 
 | Path | Purpose |
 | --- | --- |
+| `asm/v2/*.asm`, `asm/v2/layout.inc`, `asm/v2/template.inc` | Phase-1 tracker: `tracker2.asm` (top level), `screen`, `keys`, `pt3dec`, `pt3enc`, `slot`, `player`, `editor`, `data`, `vars`, `test` |
+| `tools/pt3codec.py` | PT3 pattern codec reference (decoder, canonical encoder, round-trip test, model/stream dumps) |
+| `tools/v2_codec_test.py` | Z80-vs-Python parity harness (ZEsarUX ZRCP, private port 10001) |
+| `tools/v2_ui_smoke.py` | boots the demo tape and drives the editor, saving screenshots |
+| `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |
 | `tools/mktap.py` | Wrap a raw binary in a `.tap` with a ROM-BASIC loader (also used for extra CODE blocks) |
 | `Makefile` → `make asm-poc` | assembles `build/asm/ui_poc.{bin,sym,lst,tap}` |
