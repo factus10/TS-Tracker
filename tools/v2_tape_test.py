@@ -82,11 +82,14 @@ def main():
         # directory screen; the real tape has been playing since launch, so the loader
         # skips the blocks ahead of the target and picks it up by name (no rewind needed)
         entry = first_name + struct.pack("<H", first_len) + bytes([3, 0])
-        # stop the CPU inside OUR code (not in the ROM interrupt handler, where IFF is
-        # off until its EI -- hijacking PC there leaves HALT sleeping forever)
+        # stop the CPU inside OUR code but not inside an interrupt handler (the ROM's
+        # below $100, or our own isr_frames), where IFF is off until its EI --
+        # hijacking PC there leaves the next HALT sleeping forever
+        isr0, isr1 = S["isr_frames"], S["isr_frames_end"]
         for _ in range(50):
             z.cmd("enter-cpu-step")
-            if 0x8000 <= z.pc() < SLOT: break
+            pc = z.pc()
+            if 0x8000 <= pc < SLOT and not (isr0 <= pc < isr1): break
             z.cmd("exit-cpu-step"); time.sleep(0.02)
         z.cmd(f"write-memory-raw {S['DIR_BUF']} {entry.hex()}")
         z.cmd(f"write-memory-raw {S['dir_count']} 01")

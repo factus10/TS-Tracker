@@ -66,8 +66,12 @@ quit_to_basic:
         ret
 
 ; isr_frames: the whole interrupt handler -- FRAMES (60 Hz) for key repeat and
-; the player's tick catch-up. Nothing here depends on IY.
+; the player's tick catch-up. Nothing here depends on IY. EI comes first so
+; that a debugger / test harness that stops the CPU inside the handler and
+; moves PC elsewhere does not leave interrupts off (the next HALT would sleep
+; forever); the handler is far too short to be re-entered.
 isr_frames:
+        ei
         push    af
         push    hl
         ld      hl,(FRAMES)
@@ -75,8 +79,8 @@ isr_frames:
         ld      (FRAMES),hl
         pop     hl
         pop     af
-        ei
         reti
+isr_frames_end:
 
         INCLUDE "screen.asm"
         INCLUDE "keys.asm"

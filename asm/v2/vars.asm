@@ -38,6 +38,7 @@ song_len:      dw 0
 wp_pat:        db 0
 wp_len:        db 64
 wp_dirty:      db 0
+song_mod:      db 0                     ; 1 = unsaved changes ('*' on the SONG tag)
 wp_old_bytes:  dw 0
 free_bytes:    dw 0
 

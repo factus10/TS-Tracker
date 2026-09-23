@@ -292,6 +292,7 @@ se_cur_addr:
 ; se_append: BC = block size -> a block appended at the end of the song, this
 ; instrument's pointer set to it. HL = new block. CY set = no room.
 se_append:
+        call    set_modified
         ld      hl,(song_len)
         ld      de,SLOT_BASE
         add     hl,de
@@ -316,6 +317,7 @@ se_append:
 ; one-line block if there is none, fork a copy if the block is shared with
 ; another instrument of the same kind. CY set = no room.
 se_ensure:
+        call    set_modified
         call    se_refresh
         ld      hl,(se_blk)
         ld      a,h

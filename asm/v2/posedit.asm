@@ -150,9 +150,11 @@ ar_digit:
         add     a,b                     ; *3
         call    ar_pos_addr
         ld      (hl),a
+        call    set_modified            ; (after the store: it clobbers A)
         jp      ar_draw_all
 
 ar_loop_here:
+        call    set_modified
         ld      a,(ar_cur)
         ld      (SLOT_BASE+H_LOOP),a
         call    ar_draw_all
@@ -166,6 +168,7 @@ ar_insert:
         ld      bc,1
         call    slot_insert
         jp      c,ar_noroom
+        call    set_modified
         call    ar_pos_addr
         inc     hl
         ld      a,(hl)                  ; the entry that was here (now shifted)
@@ -186,6 +189,7 @@ ar_delete:
         ld      a,(SLOT_BASE+H_NPOS)
         cp      2
         jp      c,cmd_arrange.loop      ; keep at least one position
+        call    set_modified
         call    ar_pos_addr
         ld      bc,1
         call    slot_delete
@@ -236,6 +240,7 @@ ar_newpat:
         ld      bc,10
         call    slot_insert
         jp      c,ar_noroom
+        call    set_modified
         ld      hl,(ar_tmp)
         ld      de,SLOT_BASE
         add     hl,de                   ; HL -> new entry

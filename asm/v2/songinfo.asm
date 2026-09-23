@@ -20,6 +20,7 @@ cmd_info:
         jr      nc,.loop
         inc     a
         ld      (SLOT_BASE+H_SPEED),a
+        call    set_modified
         call    si_speed
         jr      .loop
 .n7:    bit     4,a                     ; 6 = speed down
@@ -29,6 +30,7 @@ cmd_info:
         jr      c,.loop
         dec     a
         ld      (SLOT_BASE+H_SPEED),a
+        call    set_modified
         call    si_speed
         jr      .loop
 .plain: call    kb_letter_edge
@@ -52,6 +54,7 @@ cmd_info:
         ld      (pt_col),a
         ld      b,32
         call    prompt_text
+        call    set_modified            ; typing edits the header in place, cancelled or not
         call    si_draw
         jr      .loop
 .leave: call    kb_wait_none

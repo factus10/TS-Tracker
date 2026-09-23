@@ -55,8 +55,7 @@ s_msg_confirm_clr:  db "Clear this channel? Y/N         ",0
 ; ---- splash --------------------------------------------------------------------
 s_splash1: db "TS TRACKER 2",0
 s_splash2: db "PT3 editor for the TS-2068",0
-s_splash3: db "Phase 1 -- in-memory editing",0
-s_splash4: db "^N new song    ^Q quit",0
+s_splash3: db "v2.0  --  64K Software 2026",0
 s_start_keys:  db "^S  scan a song tape",0
 s_start_keys2: db "^N  new song     ^Q  quit",0
 

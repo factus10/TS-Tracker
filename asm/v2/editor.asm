@@ -522,10 +522,14 @@ mul24:
 mark_dirty:
         ld      a,1
         ld      (wp_dirty),a
+set_modified:                           ; the song differs from what is on tape
+        ld      a,1
+        ld      (song_mod),a
         ret
 
 redraw_edit:
         call    update_free
+        call    draw_modflag
         call    draw_grid
         call    draw_detail
         jp      draw_free_pos

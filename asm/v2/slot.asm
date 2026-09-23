@@ -16,6 +16,7 @@ song_init:
         ld      (cur_row),a
         ld      (cur_chan),a
         ld      (cur_field),a
+        ld      (song_mod),a            ; freshly loaded / new: nothing unsaved
         ld      (play_mute),a
         ld      (copy_src),a
         dec     a

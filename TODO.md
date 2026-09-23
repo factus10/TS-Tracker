@@ -1,15 +1,34 @@
 # TS Tracker — status & TODO
 
-> **Sept 2026 — v2 (all-assembly, SQ-Tracker-style) is in progress.** Plan and
-> status: [`docs/redesign-plan.md`](docs/redesign-plan.md). Phases 1 (playable
-> editor, codec-verified against every bundled song), 2 (tape load/save,
-> directory, arrangement editor, song info), 3 (sample and ornament editors
-> with preview) and 4 (follow-play with mutes and VU, copy/paste, transpose,
-> command parameters, envelope period / noise entry, note preview, edit step,
-> de-dup on save) are done; Phase 5 (manual, release, retire tracker.c; PT2
-> import, modified indicator, undo as candidates) is next. The C tracker
-> below is now **tracker-classic**: kept building until v2 reaches parity, no
-> new features. Its backlog items move to the v2 phases.
+> **Sept 2026 — TS Tracker 2 shipped.** The all-assembly, SQ-Tracker-style
+> editor (`asm/v2/`, `make tracker2`) replaced the C editor in v2.0: plan and
+> per-phase results in [`docs/redesign-plan.md`](docs/redesign-plan.md), user
+> manual in [`docs/manual-v2.md`](docs/manual-v2.md). The C tracker below is
+> **retired** (`make tracker-classic` still builds it; `docs/manual.md` is its
+> manual). The player (`src/pt3_player.c`) is unchanged.
+
+## TS Tracker 2 — backlog
+
+- [ ] **PT2 import** — convert on load (header, samples, ornaments, pattern
+      grammar; per-channel noise → PTxPlay's AddToNs rule). Needs ~1 KB of code
+      room: a code diet or one more slot move.
+- [ ] **Undo** — at least one level for cell edits (a row snapshot is cheap; a
+      whole-pattern snapshot needs 1.5 KB).
+- [ ] **Per-channel copy/paste** (copy one channel's column).
+- [ ] **TS-PICO native file loading** — load any `.pt3` by filename via TPI
+      instead of scanning a tape.
+- [ ] Hardware verification on a real TS2068 (the suites run in ZEsarUX).
+
+## Verification recipe
+
+`make tracker2` and `make tracker2-demo SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"`,
+then `tools/v2_codec_test.py`, `tools/v2_arrange_test.py <dir>`,
+`tools/v2_instr_test.py <dir>`, `tools/v2_phase4_test.py <dir>` and, alone,
+`tools/v2_tape_test.py <dir>`. All must pass before a release.
+
+---
+
+# The retired C editor (v1.2) — history
 
 Work on the tracker (`src/tracker.c`). The player (`src/pt3_player.c`) is
 shipped and stable. For how the editor is built, see `docs/architecture.md`;
@@ -38,36 +57,9 @@ The editor is feature-complete for single-song authoring and editing:
 - **Help** — `K` shows a full key reference. (Save=`W`, Help=`K`; `S`/`H` are
   the C#/G# piano keys.)
 
-Verified via direct function execution (byte-level: model→rebuild→PT3,
-empty-row-0 REST) and the real UI (new song → note → `S` saves with the edit).
-All committed to `main`.
+Its known issues (14-pattern cap, ~170 B headroom, PT2 view-only) and its
+backlog were resolved by, or moved into, TS Tracker 2.
 
-## Known issues / risks
-
-- **Not yet tested in the UI: real multi-pattern PT3 load + pattern switching.**
-  New-song templates only have one pattern. The logic is identical to the
-  verified single-pattern path, but exercise it on a real song (Fuse/hardware).
-- **`rebuild_song` assumes standard PT3 layout** (pattern table + data last,
-  after instrument defs). Non-standard songs that interleave them would be
-  corrupted on rebuild — not guarded. See `docs/architecture.md`.
-- **`MAX_PATTERNS = 14`** — sized to the `$6000` gap and roughly matched to the
-  ~5.5 KB save budget (`SONG_BUDGET = $FB00−$E500`, after PTX_ORIGIN was raised
-  to `$DAC0` to fund the editor). Bigger songs need memory-map surgery.
-- **Binary is essentially full** — ~170 B headroom below PTxPlay after the
-  ornament editor. Future code needs a reclamation pass or another PTX bump.
-- **Instrument editor limits** — ≤13 lines shown/editable; a resized-away old
-  block is left as dead bytes (bounded).
-- **PT2 songs are view/play-only** — no PT2 decoder; the editor refuses them.
-
-## Remaining backlog (committed scope, unbuilt)
-
-- [ ] **Octave-shift current cell** up/down as a separate op from setting the
-      base octave (today one key does both).
-- [ ] **Live playback while editing** — PTxPlay running against the edit buffer;
-      per-channel mute keys carried over from the player.
-- [ ] **Tempo / speed editing** — we read `song[100]` but offer no way to change
-      it (A.Y. Tracker `T`-mode style up/down).
-- [ ] **Multi-pattern UI verification pass** on a real song (see Known issues).
 ## Sound editor overhaul (in progress, funded by the Phase-1 RAM reclaim)
 
 - [x] **Phase 1 — per-line noise pitch + envelope display** — the sample editor

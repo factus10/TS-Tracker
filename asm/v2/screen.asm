@@ -897,11 +897,26 @@ div3:
 .done:  ld      a,c
         ret
 
+; draw_modflag: '*' in the SONG tag's first cell while the song has unsaved changes
+draw_modflag:
+        ld      a,R_MENU0
+        ld      c,0
+        call    scr_addr
+        ld      a,(song_mod)
+        or      a
+        ld      a,' '
+        jr      z,.p
+        ld      a,'*'
+.p:     call    put_char
+        ld      (hl),A_MENU_SONG
+        ret
+
 ; Repaint everything from the model
 redraw_all:
         call    cls
         call    draw_chrome
 redraw_dynamic:
+        call    draw_modflag
         call    draw_info
         call    draw_grid
         call    draw_detail

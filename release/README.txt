@@ -1,46 +1,50 @@
-TS Tracker -- prebuilt tapes (v1.0)
+TS Tracker -- prebuilt tapes (v2.0)
 ===================================
 
 Two apps for the Timex/Sinclair 2068. Both are standard Spectrum-format
 .tap files: load with `LOAD ""` from BASIC, or pass on an emulator's
-command line. Each shows a TIMEX title splash -- press any key to start.
+command line.
 
-  tracker.tap
-      The pattern editor. Press N at the first menu to start a NEW song
-      with no tape, or S to scan an inserted song tape and edit one.
-      Edit notes/volumes, design instruments (E = sample editor,
-      T = ornament editor), play with A, and save back to tape with W.
-      Full key reference: press K in the editor, or see the manual PDF.
+  tracker2.tap
+      TS Tracker 2, the PT3 song editor (all machine code, SQ-Tracker
+      style screen). At the start screen press N for a NEW song, or
+      S to scan an inserted song tape and pick one to edit. The three
+      menu strips at the top name every command; each runs with
+      SYMBOL SHIFT + the yellow letter. SYM+H shows every key.
+      Full guide: TS-Tracker-2-Manual.pdf (or the .md).
 
   pt3-player.tap
       The playback-only picker. Boot it, then insert a song tape and
-      press S to scan; 1-9 plays a song, A plays all.
+      press S to scan; 1-9 plays a song, A plays all. Plays PT2 and PT3.
 
   songs.tap
       Six PT2/PT3 chiptunes (the ones in songs/ in the source repo),
-      one CODE block per song. Insert AFTER the player (or tracker) has
-      booted, then press S to scan it.
+      one CODE block per song. Insert AFTER the editor or player has
+      booted, then press S to scan it. The editor loads PT3 songs only;
+      the player plays both formats.
 
-  TS-Tracker-Manual.pdf
-      The full user manual for the tracker.
+  TS-Tracker-2-Manual.pdf / .md
+      The user manual for the editor.
 
 Quick start (ZEsarUX)
 ---------------------
 
-  zesarux --machine ts2068 --tape tracker.tap     (or pt3-player.tap)
+  zesarux --machine ts2068 --tape tracker2.tap     (or pt3-player.tap)
 
-After the title splash and the first menu:
+After loading:
 
-  Tracker:  press N for a new song -> V to open the pattern view -> edit.
-            (Or insert songs.tap, press S to scan, pick one to edit.)
-  Player:   insert songs.tap (F5 menu), press S to scan, then 1-6 to play.
-            Rewind (F5 -> Rewind) before each play; CAPS+SPACE stops a scan.
+  Editor:  press N for a new song -> type notes with Z S X D C V G B H N J M
+           -> SYM+A plays -> SYM+S saves to tape.
+           (Or insert songs.tap, press S to scan, press the song's number.)
+  Player:  insert songs.tap (F5 menu), press S to scan, then 1-6 to play.
+           Rewind (F5 -> Rewind) before each play; CAPS+SPACE stops a scan.
 
 On a real TS2068
 -----------------
 
 Same flow with real cassettes (or a TS-PICO in tape mode). When a song
-tape physically stops at the end, press CAPS+SPACE to stop scanning.
+tape physically stops at the end of a scan, press SPACE (editor) or
+CAPS+SPACE (player) to end the scan.
 
 Source / latest
 ---------------

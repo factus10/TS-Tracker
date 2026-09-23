@@ -93,6 +93,9 @@ class ZRCP:
         self.cmd("enter-cpu-step")
         self.write(TRAP, bytes([0x18, 0xFE]))                    # JR -2
         self.write(SP_TOP, bytes([TRAP & 0xFF, TRAP >> 8]))      # return address
+        # (This harness never runs `start`, so the program's IM2 handler is not
+        # installed; the machine is in IM1 and step mode stops at the ROM handler's
+        # entry, so the codec runs with interrupts off. Deterministic -- keep it.)
         self.cmd(f"set-register SP={SP_TOP:04X}h")
         self.cmd(f"set-register PC={addr:04X}h")
         self.cmd("exit-cpu-step")

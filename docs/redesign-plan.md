@@ -285,7 +285,44 @@ byte-identical output by `tools/v2_codec_test.py`.
 | **2** | **Tape + arrangement** (`asm/v2/tape.asm`, `dir.asm`, `posedit.asm`, `songinfo.asm`; tests `tools/v2_tape_test.py`, `tools/v2_arrange_test.py`). EXROM LD-BYTES/SA-BYTES trampolines with BREAK caught via ERRSP (a scan ends cleanly when the tape runs out); start screen, tape scan + 9-entry directory with format detection, load by name, Save with an 8-char name + version suffix; song-info screen (title, author, speed); arrangement editor (type pattern, insert, delete, loop point, create pattern, pattern length) | +3.7 KB | **done** — see below |
 | **3** | **Instrument editors** (`asm/v2/instr.asm`; test `tools/v2_instr_test.py`). Sample editor (SYM+E): per line T/N/E mixer flags, signed tone offset with accumulate, signed noise/envelope offset with accumulate, volume, amplitude slide; ornament editor (SYM+R): signed semitone per line; both: Len/Rep prompts, insert/delete line, create on first edit, fork shared blocks, ENTER-held preview through PTxPlay (envelope shape 8 at pitch when the sample uses the envelope) | +2.5 KB | **done** — see below |
 | **4** | **SQ parity extras** (test `tools/v2_phase4_test.py`): follow-cursor playback (the grid scrolls under the playing row, the editor lands where playback stopped) with `1 2 3` mute keys and a three-channel VU; copy/paste pattern (SYM+C/V); transpose channel ±1 / ±12 (SYM+T/Y, +CAPS); PT3 command column with hex parameter entry; row envelope period (SYM+W) and noise (SYM+B); note preview on entry (held key); edit step (SYM+K); identical streams de-duplicated on save | +1.6 KB | **done** — see below |
-| **5** | Manual + README refresh, screenshots, release bundle; retire `tracker.c` (player unchanged). Candidates first: PT2 import (convert on load), a "modified" indicator, undo | — | next |
+| **5** | **Release.** User manual (`docs/manual-v2.md` + dot-matrix PDF) with fresh screenshots (`tools/v2_shots.py`), README and TODO rewritten around v2, `release/ts-tracker.zip` now ships `tracker2.tap`; `tracker.c` retired (`make tracker-classic` only); a `*` modified indicator on the SONG tag; version line on the start screen | +0.1 KB | **done** — see below |
+
+### Phase 5 result (2026-09-23)
+
+| Start screen | The editor with unsaved changes (`*SONG`) |
+| --- | --- |
+| ![start](screenshots/v2-start.png) | ![editor](screenshots/v2-editor.png) |
+
+- **Documentation.** `docs/manual-v2.md` is the user manual (loading, scanning, the
+  pattern editor field by field, commands and their parameters, row globals, the
+  arrangement editor, song info, the instrument editors with a "making different
+  sounds" cookbook, playback, saving, a first-tune walkthrough, key reference, limits).
+  `docs/manual-v2.pdf` is the dot-matrix print version (generated from a copy without
+  the figures: pandoc 3.8 wraps images in `\pandocbounded`, which the print template
+  does not define). `tools/v2_shots.py` captures every screen for the docs. README and
+  TODO now describe v2 as the editor; the C editor's status text moved to a history
+  section.
+- **Release.** `make release` bundles `tracker2.tap`, `pt3-player.tap`, `songs.tap`, the
+  v2 manual (PDF and Markdown) and a rewritten `release/README.txt`; `release/tracker.tap`
+  is gone. `make all` builds `tracker2` instead of `tracker`; `make tracker-classic`
+  still builds the C editor for reference.
+- **Small program changes.** A `*` in front of `SONG` while the song has changes not on
+  tape (set by every edit path: cells, instruments, arrangement, song info; cleared on
+  load, new and a successful save). The start screen shows `v2.0 -- 64K Software 2026`.
+  Build: 15,301 B code+data + 2,275 B PTxPlay = 17,576 B, 856 B free.
+- **Verified.** The five suites pass on the release build (codec parity 105 checks,
+  arrangement, instruments, Phase 4 operations, real-time tape). They earned their keep
+  twice in this phase. The arrangement suite caught the new modified-flag call placed
+  where it clobbered the typed pattern digit. The tape suite then hung with the program
+  asleep in a HALT: the harnesses take over the CPU by pausing it and setting PC, and
+  they refuse to do so inside the ROM's interrupt handler (interrupts are off there until
+  its EI) -- but the Phase 4 IM2 handler lives inside the code image, so that check no
+  longer excluded it. The handler now executes EI as its first instruction, so a pause
+  anywhere inside it is harmless, and the tape harness skips its address range too. (The
+  codec harness never runs `start`, so the machine stays in IM1 there and its hijacks,
+  made from the ROM handler's entry with interrupts off, are deterministic by design.)
+- **Left for later** (see `TODO.md`): PT2 import (needs ~1 KB of code room), undo,
+  per-channel copy/paste, TS-PICO native loading, a pass on real hardware.
 
 ### Phase 4 result (2026-09-22)
 
@@ -512,6 +549,8 @@ byte-identical output by `tools/v2_codec_test.py`.
 | `tools/v2_arrange_test.py` | drives the arrangement editor and song-info screen, then checks the slot structurally |
 | `tools/v2_instr_test.py` | drives the sample and ornament editors (every operation, preview, create, fork), checking the slot after each step |
 | `tools/v2_phase4_test.py` | drives step, preview, command params, envelope period, noise, transpose, copy/paste, follow-play + mutes, loop, de-dup on save |
+| `tools/v2_shots.py` | captures every v2 screen for the manual and README |
+| `docs/manual-v2.md`, `docs/manual-v2.pdf` | the TS Tracker 2 user manual |
 | `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |
 | `tools/mktap.py` | Wrap a raw binary in a `.tap` with a ROM-BASIC loader (also used for extra CODE blocks) |

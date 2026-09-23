@@ -19,6 +19,10 @@ screen_start:
         ld      hl,s_splash2
         ld      a,A_LABEL
         call    print_at
+        ld      bc,(8<<8)|3
+        ld      hl,s_splash3
+        ld      a,A_MENU_TXT
+        call    print_at
         ld      a,A_MENU_HOT
         ld      (hot_attr),a
         ld      bc,(10<<8)|3
@@ -372,9 +376,11 @@ cmd_save:
         xor     a
         out     ($FE),a
         pop     af
-        ld      hl,s_msg_saved
-        jr      nz,.msg
         ld      hl,s_msg_savefail
+        jr      z,.msg
+        xor     a
+        ld      (song_mod),a            ; on tape now
+        ld      hl,s_msg_saved
 .msg:   call    draw_message
         call    kb_wait_none
         call    kb_wait_key
