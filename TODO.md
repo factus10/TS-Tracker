@@ -9,12 +9,14 @@
 
 ## TS Tracker 2 — backlog
 
-- [ ] **PT2 import** — convert on load (header, samples, ornaments, pattern
-      grammar; per-channel noise → PTxPlay's AddToNs rule). Needs ~1 KB of code
-      room: a code diet or one more slot move.
-- [ ] **Undo** — at least one level for cell edits (a row snapshot is cheap; a
-      whole-pattern snapshot needs 1.5 KB).
-- [ ] **Per-channel copy/paste** (copy one channel's column).
+- [x] **PT2 import** — converted on load (`asm/v2/pt2conv.asm`, reference
+      `tools/pt2conv.py`). PT2's per-channel noise becomes the row's noise (the
+      last channel wins when two differ on one row); PT2 volume 0 becomes 1;
+      "stop slide" has no PT3 form and is dropped.
+- [x] **Undo** — one level, whole pattern (SYM+U; again = redo). The snapshot
+      lives in the unused top of the song slot, so it is unavailable only when
+      the song fills the slot to within 1.5 KB.
+- [x] **Per-channel copy/paste** (CAPS+SYM+C / CAPS+SYM+V).
 - [ ] **TS-PICO native file loading** — load any `.pt3` by filename via TPI
       instead of scanning a tape.
 - [ ] Hardware verification on a real TS2068 (the suites run in ZEsarUX).

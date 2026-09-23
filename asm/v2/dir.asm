@@ -109,11 +109,14 @@ scan_tape:
         inc     hl
         push    hl
         call    slot_has_song           ; (clobbers HL)
-        pop     hl
         ld      a,3
         jr      z,.fmt
+        call    pt2_detect
         ld      a,2
-.fmt:   ld      (hl),a
+        jr      z,.fmt
+        xor     a
+.fmt:   pop     hl
+        ld      (hl),a                  ; 3 PT3, 2 PT2, 0 something else
         ld      a,(dir_count)
         call    draw_dir_entry
         ld      hl,dir_count
@@ -156,11 +159,16 @@ draw_dir_entry:
         push    hl
         ld      bc,12
         add     hl,bc
-        ld      a,(hl)                  ; fmt
-        cp      3
-        ld      a,'3'
-        jr      z,.f
+        ld      a,(hl)                  ; fmt: 3 PT3, 2 PT2, 0 other
+        ld      c,a
         ld      a,'?'
+        dec     c
+        dec     c
+        jr      nz,.n2
+        ld      a,'2'
+.n2:    dec     c
+        jr      nz,.f
+        ld      a,'3'
 .f:     call    put_char_adv
         inc     e
         inc     e                       ; col 7
@@ -269,9 +277,15 @@ load_entry:
         call    tape_read_song
         cp      1
         jr      nz,.fail
-        call    slot_has_song           ; PT3 (or Vortex export) only -- no PT2 decoder yet
+        call    slot_has_song           ; PT3 (or Vortex export): edit it as it is
+        jr      z,.ok
+        call    pt2_detect              ; PT2: convert it in place first
         jr      nz,.notpt3
-        ; remember the name for Save (first 8 chars)
+        ld      hl,s_hint_convert
+        call    draw_hint
+        call    pt2_import
+        jr      c,.toobig
+.ok:    ; remember the name for Save (first 8 chars)
         ld      hl,(ld_entry)
         ld      de,save_name
         ld      bc,8
@@ -283,6 +297,8 @@ load_entry:
 .skip:  call    tape_consume
         jr      .loop
 .notpt3: ld     hl,s_msg_notpt3
+        jr      .msg
+.toobig: ld     hl,s_msg_pt2big
         jr      .msg
 .fail:  ld      hl,s_msg_loadfail
 .msg:   call    draw_message

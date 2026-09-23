@@ -94,6 +94,7 @@ isr_frames_end:
         INCLUDE "posedit.asm"
         INCLUDE "songinfo.asm"
         INCLUDE "instr.asm"
+        INCLUDE "pt2conv.asm"
         INCLUDE "data.asm"
         INCLUDE "vars.asm"
         INCLUDE "test.asm"

@@ -253,8 +253,8 @@ the slot 768 B back by shrinking the stack region to 256 B (current map below):
 | **WP** working pattern (64 rows × 24 B) | `$6A00–$6FFF` | 1,536 | note, smp\|flags, env\|orn, vol\|cmd, 3 param bytes per cell; env period + noise per row |
 | **STAGE** encoder output / commit staging | `$7000–$7BFF` | 3,072 | |
 | MISC scratch (event lists, noise carriers, tape directory, preview song, IM2 vector table at `$7E00`) | `$7C00–$7FFF` | 1,024 | |
-| **v2 code + tables + PTxPlay** | `$8000–$C7FF` | 18,432 | one CODE block; Phase 4 uses 17,513 B (Phase 1: 9,718 at `$AB00`, Phase 2: 13,373 at `$B800`, Phase 3: 15,896 at `$C000`) |
-| **PT3 song slot** | `$C800–$FDFF` | **13,824** | vs 7,424 in v1; the bundled songs are 3.0–5.5 KB |
+| **v2 code + tables + PTxPlay** | `$8000–$CFFF` | 20,480 | one CODE block (Phase 1: 9,718 B at `$AB00`, Phase 2: 13,373 at `$B800`, Phase 3: 15,896 at `$C000`, Phase 4/5: 17,576 at `$C800`; Phase 6 moved the slot to `$D000`) |
+| **PT3 song slot** | `$D000–$FDFF` | **11,776** | vs 7,424 in v1; the bundled songs are 3.0–5.5 KB. The unused top 1.5 KB holds the undo snapshot while the song is small enough |
 | Our stack, UDG | `$FE00–$FFFF` | 512 | SP = `$FF00`; the stack needs well under 256 B |
 
 This supersedes the "Plan A / Plan B" split: Plan A's clean return is kept
@@ -285,7 +285,48 @@ byte-identical output by `tools/v2_codec_test.py`.
 | **2** | **Tape + arrangement** (`asm/v2/tape.asm`, `dir.asm`, `posedit.asm`, `songinfo.asm`; tests `tools/v2_tape_test.py`, `tools/v2_arrange_test.py`). EXROM LD-BYTES/SA-BYTES trampolines with BREAK caught via ERRSP (a scan ends cleanly when the tape runs out); start screen, tape scan + 9-entry directory with format detection, load by name, Save with an 8-char name + version suffix; song-info screen (title, author, speed); arrangement editor (type pattern, insert, delete, loop point, create pattern, pattern length) | +3.7 KB | **done** — see below |
 | **3** | **Instrument editors** (`asm/v2/instr.asm`; test `tools/v2_instr_test.py`). Sample editor (SYM+E): per line T/N/E mixer flags, signed tone offset with accumulate, signed noise/envelope offset with accumulate, volume, amplitude slide; ornament editor (SYM+R): signed semitone per line; both: Len/Rep prompts, insert/delete line, create on first edit, fork shared blocks, ENTER-held preview through PTxPlay (envelope shape 8 at pitch when the sample uses the envelope) | +2.5 KB | **done** — see below |
 | **4** | **SQ parity extras** (test `tools/v2_phase4_test.py`): follow-cursor playback (the grid scrolls under the playing row, the editor lands where playback stopped) with `1 2 3` mute keys and a three-channel VU; copy/paste pattern (SYM+C/V); transpose channel ±1 / ±12 (SYM+T/Y, +CAPS); PT3 command column with hex parameter entry; row envelope period (SYM+W) and noise (SYM+B); note preview on entry (held key); edit step (SYM+K); identical streams de-duplicated on save | +1.6 KB | **done** — see below |
+| **6** | **Backlog:** one-level undo (SYM+U, snapshot in the unused top of the song slot), channel copy/paste (CAPS+SYM+C/V), PT2 import converted on load (`pt2conv.asm`, byte-identical to `tools/pt2conv.py`, AY-stream-equivalent to PTxPlay's own PT2 playback); slot moved to `$D000` (11.5 KB) | +1.7 KB | **done** — see below |
 | **5** | **Release.** User manual (`docs/manual-v2.md` + dot-matrix PDF) with fresh screenshots (`tools/v2_shots.py`), README and TODO rewritten around v2, `release/ts-tracker.zip` now ships `tracker2.tap`; `tracker.c` retired (`make tracker-classic` only); a `*` modified indicator on the SONG tag; version line on the start screen | +0.1 KB | **done** — see below |
+
+### Phase 6 result (2026-09-23)
+
+- **Room.** The slot base moved to `$D000` (code region 20 KB, slot 11.5 KB). Build:
+  17,040 B code+data + 2,275 B PTxPlay = 19,315 B, 1,165 B free.
+- **Undo (SYM+U).** Every edit path snapshots the working pattern (and its length) into
+  the unused top of the song slot first (`undo_snap`; 1.5 KB at `UNDO_BUF`), when the
+  song leaves room for it. SYM+U swaps the pattern with the snapshot, so a second SYM+U
+  redoes. Any slot splice or pattern load invalidates the snapshot, so undo is scoped to
+  the pattern you are in. No RAM was needed: the slot's free tail is the buffer.
+- **Channel copy/paste (CAPS+SYM+C / V).** The clipboard remembers pattern + channel;
+  paste parks the target pattern in STAGE, decodes the source into the WP, copies the
+  channel's cells across (a cell with an envelope shape brings its row's period if the
+  target row has none), and restores the target. Plain SYM+V refuses a channel clipboard
+  and vice versa.
+- **PT2 import.** `pt2_detect` recognises a PT2 block (sane header, pattern-table pointer
+  inside the block, `$FF`-closed position list); the directory shows it as `2`, and loading
+  it converts in place: the module is moved to the top of the slot and the PT3 built from
+  `SLOT_BASE` up — template header with version `5` and tone table 1 (what PTxPlay uses
+  for PT2), positions ×3, table, samples (PTxPlay's `SamCnv` bit mapping, shared pointers
+  kept shared), ornaments (an empty ornament 0 if PT2 had none), then every pattern
+  decoded with the PT2 grammar (`dec_event_pt2`, dispatched from `dec_event` by
+  `dec_fmt`) into the WP and re-encoded canonically. PT2 gliss → command 1 (delay 1,
+  signed step), portamento → command 2 (delay 1, step, as PTxPlay's PT2 path computes
+  it), delay → command 9, per-channel noise → the row's noise, volume 0 → 1, stop-slide
+  dropped. `tools/pt2conv.py` is the reference implementation and `tools/v2_pt2_test.py`
+  compares the Z80 output with it byte for byte; `tools/pt2_equiv_test.py` plays the
+  original PT2 and the converted PT3 through the universal PTxPlay (a recorder stub in
+  RAM runs 600 frames per hijack) and compares the AY register streams, masked to the
+  bits the chip latches: PTxPlay's own PT2 path leaves the sample's volume nibble in the
+  upper half of the tone-period high byte, which the AY's 12-bit register ignores and
+  the conversion masks away; every other bit is identical on all 600 frames of all four
+  bundled PT2 songs.
+- **Verified.** Phase 6 suite (22 checks), the PT2 parity and AY-equivalence tests, and
+  the five earlier suites all pass on the build in this commit.
+- **Found on the way:** three register clobbers of the familiar kind (the undo snapshot
+  call destroying the key code in A; `wp_row_addr` overwriting DE in the channel paste;
+  the PT2 sharing lookup overwriting DE), and a failure exit that would have returned
+  with a word left on the stack. The suites caught the first two before commit; the
+  others were caught in review.
 
 ### Phase 5 result (2026-09-23)
 
@@ -550,6 +591,8 @@ byte-identical output by `tools/v2_codec_test.py`.
 | `tools/v2_instr_test.py` | drives the sample and ornament editors (every operation, preview, create, fork), checking the slot after each step |
 | `tools/v2_phase4_test.py` | drives step, preview, command params, envelope period, noise, transpose, copy/paste, follow-play + mutes, loop, de-dup on save |
 | `tools/v2_shots.py` | captures every v2 screen for the manual and README |
+| `tools/v2_phase6_test.py` | undo and channel copy/paste |
+| `tools/pt2conv.py`, `tools/v2_pt2_test.py`, `tools/pt2_equiv_test.py` | PT2 → PT3 reference converter; Z80 parity; AY-stream equivalence through PTxPlay |
 | `docs/manual-v2.md`, `docs/manual-v2.pdf` | the TS Tracker 2 user manual |
 | `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |

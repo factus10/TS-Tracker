@@ -32,22 +32,23 @@ What it does:
 
 - **Pattern editing** with a piano keyboard, octave keys, rests, per-note
   sample / envelope / ornament / volume, PT3 commands with parameter entry,
-  row envelope period and noise, insert/delete row, copy/paste pattern,
-  transpose, edit step, and a preview of every note as you type it.
+  row envelope period and noise, insert/delete row, copy/paste of a pattern or
+  a channel, transpose, edit step, one-level undo, and a preview of every note
+  as you type it.
 - **Instrument editors** for samples (up to 64 lines, every field PTxPlay
   reads) and ornaments, with create, resize, insert/delete line and a
   held-key preview.
 - **Arrangement editor** and **song info** (title, author, speed).
 - **Playback** from the current position with the editor following the
   music, loop-pattern mode, channel mutes and a VU.
-- **Tape**: scan a tape into a directory, load a PT3 by name, save with a
-  name and an auto-incrementing version; identical channel streams are
-  de-duplicated on save.
+- **Tape**: scan a tape into a directory, load a PT3 (or a PT2, converted on
+  the way in) by name, save with a name and an auto-incrementing version;
+  identical channel streams are de-duplicated on save.
 - **PT3 exactly**: the song in memory *is* the PT3 file. One pattern at a
   time is decoded for editing and re-encoded canonically when you leave it;
   the codec is verified byte-for-byte against a Python reference on every
   pattern of the bundled songs. Saved files load in Vortex Tracker II.
-- A song may use up to 85 patterns and 200 positions in a **13.5 KB** slot;
+- A song may use up to 85 patterns and 200 positions in an **11.5 KB** slot;
   the program returns cleanly to BASIC.
 
 ## Quick start
@@ -96,9 +97,10 @@ shows every key. The [manual](docs/manual-v2.md) has the full guide and a
 | SYM+A / L | Play from here (follows) / loop the pattern; `1 2 3` mute |
 | SYM+O / P, SYM+F | Previous / next position, arrangement editor |
 | SYM+E / R | Sample / ornament editor |
-| SYM+C / V, SYM+T / Y | Copy / paste pattern, transpose channel |
+| SYM+C / V, SYM+T / Y | Copy / paste pattern (with CAPS: channel), transpose channel |
+| SYM+U | Undo the last pattern edit (again: redo) |
 | SYM+W / B / K | Row envelope period, row noise, edit step |
-| SYM+S / D / N / G | Save, load (directory), new song, song info |
+| SYM+S / D / N / G | Save, load (directory; PT2 converts on load), new song, song info |
 | SYM+I / X / Z, SYM+H / Q | Insert / delete row, clear channel; help, quit |
 
 ## Using the player
@@ -133,7 +135,9 @@ Tape compatibility (both apps):
       ZEsarUX by five automated suites (codec parity on 100 patterns,
       arrangement, instruments, editing/playback/de-dup, real-time tape)
 - [x] Tape directory scan, load by name, save with versioning
-- [ ] PT2 import (convert on load); undo; per-channel copy/paste
+- [x] Undo; per-channel copy/paste
+- [x] PT2 import (converted on load; verified against a Python reference and
+      by comparing the AY register stream of original and conversion)
 - [ ] TS-PICO native file loading (load any `.pt3` by filename via TPI)
 
 The original C editor (v1.2, `src/tracker.c`) is retired: it still builds
@@ -145,8 +149,8 @@ but it is no longer part of the default build or the release.
 **Editor (`asm/v2/`)** — one CODE block at `$8000` (about 17.6 KB including
 PTxPlay). Memory map: `$6A00` working pattern (the one pattern being edited,
 decoded), `$7000` encoder staging, `$7C00` scratch (tape directory, preview
-song, our IM2 vector table), `$8000–$C7FF` code, **`$C800–$FDFF` the song
-slot** (the PT3 itself, 13.5 KB), `$FE00` stack. BASIC's own area below
+song, our IM2 vector table), `$8000–$CFFF` code, **`$D000–$FDFF` the song
+slot** (the PT3 itself, 11.5 KB; its unused top holds the undo snapshot), `$FE00` stack. BASIC's own area below
 `$6A00` is untouched, so Quit returns to BASIC. The program runs its own
 interrupt handler (the ROM's writes system variables relative to IY, which the
 codec uses as a pointer). `asm/v2/layout.inc` and `V2_SLOT_HEX` in the
@@ -164,7 +168,10 @@ Makefile are the source of truth; PTxPlay's symbols are pulled into a generated
 **Tests (`tools/`)** — all drive ZEsarUX over its remote protocol on private
 ports: `v2_codec_test.py` (Z80 decoder/encoder vs `pt3codec.py` on every
 bundled pattern), `v2_arrange_test.py`, `v2_instr_test.py`, `v2_phase4_test.py`
-(editing, playback follow/mutes, de-dup), `v2_tape_test.py` (load/save through
+(editing, playback follow/mutes, de-dup), `v2_phase6_test.py` (undo, channel
+copy/paste), `v2_pt2_test.py` (the on-machine PT2 converter against
+`pt2conv.py`), `pt2_equiv_test.py` (original PT2 and converted PT3 produce the
+same AY register stream through PTxPlay), `v2_tape_test.py` (load/save through
 the real EXROM routines with the tape playing in real time), `v2_ui_smoke.py`
 and `v2_shots.py` (screenshots). See `docs/zesarux-debugging-guide.md`.
 
@@ -205,6 +212,7 @@ asm/v2/
   tape.asm dir.asm        EXROM tape trampolines, directory, load, save
   posedit.asm             arrangement editor
   songinfo.asm instr.asm  song info; sample and ornament editors
+  pt2conv.asm             PT2 detection and conversion on load
   data.asm vars.asm       strings, tables, glyphs, new-song template; variables
 src/
   pt3_player.c            the player: picker UI, scan, directory, play loop, viz
@@ -214,6 +222,7 @@ src/
   tracker.c               the retired C editor (make tracker-classic)
 tools/
   pt3codec.py             the PT3 codec reference model
+  pt2conv.py              PT2 -> PT3 converter (reference for asm/v2/pt2conv.asm)
   v2_*.py                 ZEsarUX-driven test suites and screenshot capture
   mktap.py                raw binary -> .tap with a BASIC loader (+ extra CODE blocks)
   build_ptxplay_asm.py    rewrites PTxPlay.asm for our builds

@@ -69,7 +69,9 @@ s_hint_dir:   db " 1-9 load  R rescan  N new  Q back",0
 s_hint_loading: db " Loading... SPACE aborts         ",0
 s_msg_rewind:   db "Rewind tape, then any key (Q=no)",0
 s_msg_loadfail: db "Load failed or stopped -- any key",0
-s_msg_notpt3:   db "Not a PT3 song (PT2?) -- any key ",0
+s_msg_notpt3:   db "Not a PT2/PT3 song -- any key   ",0
+s_msg_pt2big:   db "PT2 too big to convert - any key",0
+s_hint_convert: db " Converting PT2 to PT3...       ",0
 s_msg_confirm_load: db "Load from tape? Song is lost Y/N",0
 s_save_title: db "SAVE TO TAPE",0
 s_save_l1:    db "Filename (8 chars) + version",0
@@ -99,6 +101,8 @@ s_hint_si:     db " T title  A author  ENTER/Q back ",0
 
 ; ---- pattern editor: copy / transpose / row globals / command params / step ------
 s_msg_copied:   db "Pattern copied: SYM+V pastes it ",0
+s_msg_copiedch: db "Channel copied: CAPS+SYM+V paste",0
+s_msg_noundo:   db "Nothing to undo                 ",0
 s_msg_nocopy:   db "Nothing copied yet (SYM+C)      ",0
 s_msg_noenv:    db "Set an envelope shape here first",0
 s_msg_envper:   db "Envelope period (hex):",0
@@ -142,9 +146,9 @@ help_text:
         db      "A play  L loop  S save  D load",0
         db      "O/P pos  F arrange  G info",0
         db      "E samples  R ornaments  N new",0
-        db      "I/X row  Z clr chan  C/V copy",0
+        db      "I/X row Z clr C/V copy CAPS=chan",0
         db      "T/Y transpose  W envp  B noise",0
-        db      "K step  H help  Q quit",0
+        db      "K step  U undo  H help  Q quit",0
         db      0
         db      "Any key returns to the editor.",0
         db      $FF

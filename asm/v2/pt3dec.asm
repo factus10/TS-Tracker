@@ -14,12 +14,19 @@
 
 ; ---- dec_pattern: A = pattern index -> WP filled, wp_len set ---------------
 dec_pattern:
-        push    af
+        call    pat_entry_addr          ; HL -> 6-byte table entry
+        ld      de,SLOT_BASE
+        xor     a
+        ld      (dec_fmt),a             ; PT3 grammar
+; dec_pattern_hl: HL -> the pattern's 3 stream offsets, DE = the address they
+; are relative to. (The PT2 importer decodes PT2 streams this way, dec_fmt = 1.)
+dec_pattern_hl:
+        ld      (dec_base),de
+        push    hl
         call    wp_blank
         xor     a
         ld      (dec_warn),a
-        pop     af
-        call    pat_entry_addr          ; HL -> 6-byte table entry
+        pop     hl
         ld      ix,dec_ch
         ld      b,3
 .init:  ld      e,(hl)
@@ -27,7 +34,7 @@ dec_pattern:
         ld      d,(hl)
         inc     hl
         push    hl
-        ld      hl,SLOT_BASE
+        ld      hl,(dec_base)
         add     hl,de
         ld      (ix+0),l
         ld      (ix+1),h
@@ -52,7 +59,15 @@ dec_pattern:
         jr      nz,.chb
         dec     (ix+3)
         jr      nz,.chb
-        ld      hl,(dec_rowptr)
+        ld      a,(dec_fmt)
+        or      a
+        jr      z,.a_go
+        ld      l,(ix+0)
+        ld      h,(ix+1)
+        ld      a,(hl)
+        or      a
+        jr      z,.a_end                ; PT2: a zero where A's event starts ends the pattern
+.a_go:  ld      hl,(dec_rowptr)
         ld      d,h
         ld      e,l                     ; DE = row globals
         inc     hl
@@ -60,7 +75,7 @@ dec_pattern:
         inc     hl                      ; HL = cell A
         call    dec_event
         jr      nc,.a_ok
-        ld      a,(dec_row)
+.a_end: ld      a,(dec_row)
         ld      (wp_len),a              ; 0x00 -> pattern ends at this row
         jr      .done
 .a_ok:  call    dec_reload
@@ -139,6 +154,9 @@ dec_event:
         ld      b,(ix+1)                ; BC = stream pointer
         xor     a
         ld      (dec_ncmd),a
+        ld      a,(dec_fmt)
+        or      a
+        jp      nz,dec_event_pt2        ; PT2 grammar (import); exits via .fin
 .loop:
         ld      a,(bc)
         inc     bc

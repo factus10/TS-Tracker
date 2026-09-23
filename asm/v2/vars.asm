@@ -27,6 +27,12 @@ cur_field:     db 0
 octave:        db 4
 edit_step:     db 1                     ; rows the cursor advances after a note
 copy_src:      db $FF                   ; pattern copied with SYM+C ($FF none)
+copy_chan:     db 0                     ; channel copied with CAPS+SYM+C
+copy_kind:     db 0                     ; 0 = a pattern is on the clipboard, 1 = a channel
+undo_valid:    db 0                     ; UNDO_BUF holds the WP as it was before the last edit
+pc_row:        db 0                     ; channel paste: row counter
+pc_src:        db 0                     ; channel paste: source cell offset in the row
+pc_dst:        db 0                     ; channel paste: target cell offset in the row
 ed_buf:        ds 6                     ; hex prompt buffer
 ed_n:          db 0
 cur_sample:    db 1
@@ -51,6 +57,8 @@ dec_glob:      dw 0
 dec_ncmd:      db 0
 dec_cmds:      ds 16
 dec_warn:      db 0
+dec_fmt:       db 0                     ; 0 = PT3 grammar, 1 = PT2 (import)
+dec_base:      dw 0                     ; the address stream offsets are relative to
 stream_limit:  dw 0
 
 ; ---- encoder ----
@@ -145,6 +153,14 @@ pv_orn:        db 0
 pv_note:       db 0
 pv_shape:      db 0                     ; 0 auto (8 if the sample uses the envelope), 1-14 shape, 15 none
 pv_per:        dw 0                     ; envelope period, 0 = auto (tone period / 16)
+
+; ---- PT2 import ----
+pt2_src:       dw 0                     ; the PT2 module (moved to the top of the slot)
+pt2_len:       dw 0
+pt2_out:       dw 0                     ; where the next PT3 bytes go
+pt2_npats:     db 0
+pt2_i:         db 0
+pt2_tmp:       dw 0
 
 ; ---- test harness ----
 t_arg:         db 0

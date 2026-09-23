@@ -95,6 +95,9 @@ redraw_cursor:
 ; Plain key (A = ASCII): field-aware entry
 ; ---------------------------------------------------------------------------
 ed_plain:
+        push    af
+        call    undo_snap               ; every plain key is an edit attempt
+        pop     af
         cp      13
         jp      z,ed_rest
         cp      32
@@ -451,6 +454,7 @@ base32_value:
 ; Row insert / delete (all three channels + row globals)
 ; ---------------------------------------------------------------------------
 row_insert:
+        call    undo_snap
         ld      a,(wp_len)
         ld      hl,cur_row
         sub     (hl)
@@ -479,6 +483,7 @@ row_insert:
         jp      redraw_edit
 
 row_delete:
+        call    undo_snap
         ld      a,(wp_len)
         ld      hl,cur_row
         sub     (hl)
@@ -587,6 +592,8 @@ ed_sym:
         jp      z,cmd_noise
         cp      'K'
         jp      z,cmd_step
+        cp      'U'
+        jp      z,cmd_undo
         ld      hl,s_msg_later
         call    flash_message
         jp      editor_loop
@@ -633,6 +640,7 @@ cmd_clear_chan:
         ld      hl,s_msg_confirm_clr
         call    confirm
         jr      nz,.no
+        call    undo_snap
         ld      a,(cur_chan)
         ld      c,a
         xor     a
@@ -703,10 +711,23 @@ goto_pos:
 cmd_copy:
         ld      a,(wp_pat)
         ld      (copy_src),a
+        call    kb_caps                 ; CAPS as well: copy just the cursor's channel
         ld      hl,s_msg_copied
+        ld      a,0
+        jr      z,.kind
+        ld      a,(cur_chan)
+        ld      (copy_chan),a
+        ld      hl,s_msg_copiedch
+        ld      a,1
+.kind:  ld      (copy_kind),a
         call    flash_message
         jp      editor_loop
 cmd_paste:
+        call    kb_caps
+        jp      nz,paste_channel
+        ld      a,(copy_kind)
+        or      a
+        jr      nz,.none                ; a channel is on the clipboard, not a pattern
         ld      a,(copy_src)
         ld      hl,num_pats
         cp      (hl)
@@ -714,6 +735,8 @@ cmd_paste:
         ld      hl,wp_pat
         cp      (hl)
         jp      z,editor_loop           ; onto itself: nothing to do
+        call    undo_snap
+        ld      a,(copy_src)
         call    dec_pattern             ; wp_pat / wp_old_bytes stay the target's
         call    mark_dirty
         ld      a,(cur_row)
@@ -729,6 +752,177 @@ cmd_paste:
         call    flash_message
         jp      editor_loop
 
+; CAPS+SYM+V: paste the copied channel onto the cursor's channel. The target WP
+; is parked in STAGE, the source pattern decoded into the WP, the channel's
+; cells copied across (a source cell with an envelope shape also brings its
+; row's envelope period when the target row has none), then the WP restored.
+paste_channel:
+        ld      a,(copy_kind)
+        dec     a
+        jp      nz,cmd_paste.none
+        ld      a,(copy_src)
+        ld      hl,num_pats
+        cp      (hl)
+        jp      nc,cmd_paste.none
+        call    undo_snap
+        ld      hl,WP_BASE
+        ld      de,STAGE_BASE
+        ld      bc,WP_SIZE
+        ldir                            ; target -> STAGE
+        ld      a,(wp_len)
+        push    af
+        ld      a,(copy_src)
+        ld      hl,wp_pat
+        cp      (hl)
+        jr      z,.have
+        call    dec_pattern             ; source -> WP
+.have:  ld      a,(copy_chan)
+        call    .celloff
+        ld      (pc_src),a
+        ld      a,(cur_chan)
+        call    .celloff
+        ld      (pc_dst),a
+        xor     a
+        ld      (pc_row),a
+.row:   ld      a,(pc_row)
+        call    wp_row_addr             ; HL = source row (WP); (it clobbers DE)
+        ld      d,h
+        ld      e,l
+        push    hl
+        ld      hl,STAGE_BASE-WP_BASE
+        add     hl,de
+        ex      de,hl                   ; DE = target row (STAGE)
+        pop     hl                      ; HL = source row
+        push    hl
+        push    de
+        ld      a,(pc_src)
+        add     a,l
+        ld      l,a
+        jr      nc,.n1
+        inc     h
+.n1:    ld      a,(pc_dst)
+        add     a,e
+        ld      e,a
+        jr      nc,.n2
+        inc     d
+.n2:    inc     hl
+        inc     hl
+        ld      a,(hl)                  ; source env<<4|orn
+        dec     hl
+        dec     hl
+        and     $F0
+        ld      c,a                     ; C = shape<<4 (0 none, $F0 off)
+        ld      b,0
+        push    bc
+        ld      bc,WP_CELLSZ
+        ldir                            ; the cell
+        pop     bc
+        pop     de                      ; target row
+        pop     hl                      ; source row
+        ld      a,c
+        or      a
+        jr      z,.next
+        cp      $F0
+        jr      z,.next
+        ex      de,hl                   ; HL = target row, DE = source row
+        ld      a,(hl)
+        inc     hl
+        or      (hl)
+        dec     hl
+        ex      de,hl                   ; HL = source row, DE = target row
+        jr      nz,.next                ; target row already has a period
+        ld      a,(hl)
+        ld      (de),a
+        inc     hl
+        inc     de
+        ld      a,(hl)
+        ld      (de),a
+.next:  ld      hl,pc_row
+        inc     (hl)
+        ld      a,(hl)
+        cp      WP_ROWS
+        jr      nz,.row
+        ld      hl,STAGE_BASE
+        ld      de,WP_BASE
+        ld      bc,WP_SIZE
+        ldir                            ; target (with the new channel) -> WP
+        pop     af
+        ld      (wp_len),a
+        call    mark_dirty
+        call    redraw_edit
+        jp      editor_loop
+.celloff:                               ; A = channel -> A = 3 + channel*7
+        ld      b,a
+        add     a,a
+        add     a,a
+        add     a,a
+        sub     b
+        add     a,3
+        ret
+
+; SYM+U: swap the working pattern with its snapshot (a second SYM+U redoes)
+cmd_undo:
+        ld      a,(undo_valid)
+        or      a
+        jr      z,.none
+        ld      hl,WP_BASE
+        ld      de,UNDO_BUF
+        ld      bc,WP_SIZE
+.sw:    ld      a,(de)
+        ex      af,af'
+        ld      a,(hl)
+        ld      (de),a
+        ex      af,af'
+        ld      (hl),a
+        inc     hl
+        inc     de
+        dec     bc
+        ld      a,b
+        or      c
+        jr      nz,.sw
+        ld      a,(de)                  ; the snapshot's length
+        ld      c,a
+        ld      a,(wp_len)
+        ld      (de),a
+        ld      a,c
+        ld      (wp_len),a
+        ld      a,(cur_row)
+        ld      hl,wp_len
+        cp      (hl)
+        jr      c,.ok
+        ld      a,(hl)
+        dec     a
+        ld      (cur_row),a
+.ok:    call    mark_dirty
+        call    redraw_edit
+        jp      editor_loop
+.none:  ld      hl,s_msg_noundo
+        call    flash_message
+        jp      editor_loop
+
+; undo_snap: copy the WP (and its length) to UNDO_BUF before an edit, if the
+; song leaves room for it there
+undo_snap:
+        ld      hl,(song_len)
+        ld      de,UNDO_SIZE
+        add     hl,de
+        ld      de,SONG_BUDGET+1
+        or      a
+        sbc     hl,de
+        jr      c,.ok
+        xor     a
+        ld      (undo_valid),a
+        ret
+.ok:    ld      hl,WP_BASE
+        ld      de,UNDO_BUF
+        ld      bc,WP_SIZE
+        ldir
+        ld      a,(wp_len)
+        ld      (de),a
+        ld      a,1
+        ld      (undo_valid),a
+        ret
+
 ; ---------------------------------------------------------------------------
 ; SYM+T / SYM+Y: transpose the cursor's channel one semitone up / down over
 ; the whole pattern; with CAPS held as well, an octave. Notes that would leave
@@ -741,6 +935,7 @@ cmd_transp_dn:
         ld      a,-1
 transpose:
         ld      (ed_val),a
+        call    undo_snap
         call    kb_caps
         jr      z,.go
         ld      a,(ed_val)
@@ -807,7 +1002,8 @@ cmd_envper:
         ld      hl,s_msg_noenv
         call    flash_message
         jp      editor_loop
-.has:   pop     hl
+.has:   call    undo_snap
+        pop     hl
         push    hl
         ld      a,(hl)
         ld      de,ed_buf
@@ -839,6 +1035,7 @@ cmd_envper:
         jp      redraw_editor_loop
 
 cmd_noise:
+        call    undo_snap
         ld      a,(cur_row)
         call    wp_row_addr
         inc     hl

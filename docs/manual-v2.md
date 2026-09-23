@@ -67,8 +67,8 @@ load. When it has loaded, the **start screen** appears:
 
 Press **S** on the start screen, start the tape playing, and TS Tracker 2
 reads every block header it finds. Each song's name appears in a
-**directory** of up to nine entries with its format (`3` for PT3, `?` for
-anything else) and size in bytes. The border flashes in the usual tape
+**directory** of up to nine entries with its format (`3` for PT3, `2` for
+PT2, `?` for anything else) and size in bytes. The border flashes in the usual tape
 colours while a block is being read.
 
 The scan ends by itself when the directory is full or when a name repeats
@@ -87,8 +87,14 @@ On the directory screen:
 Because cassettes are sequential you must **rewind before loading**: the
 program reads forward from wherever the tape is, skipping blocks until it
 reaches the one you asked for, and loads it. Press SPACE to abandon a load.
-Only PT3 songs (ProTracker 3.x and Vortex Tracker II exports) can be edited;
-a PT2 song is listed but refused with a message.
+
+PT3 songs (ProTracker 3.x and Vortex Tracker II exports) load as they are.
+A **PT2** song is **converted to PT3 as it loads**: every note, sample,
+ornament, envelope and effect comes across, and saving writes a PT3. The
+conversion follows the same rules the player uses to play PT2, so it sounds
+the same. One difference to know about: PT2 sets the noise pitch per channel,
+PT3 per row, so in the rare pattern where two channels set different noise
+pitches on the same row the last one wins.
 
 # The pattern editor
 
@@ -212,9 +218,14 @@ Both appear on the detail line as `EP` and `Nz`.
   CAPS as well for an octave.
 - SYM + `C`: copy the current pattern. SYM + `V`: paste it over the pattern
   you are in.
+- CAPS + SYM + `C`: copy just the cursor's channel; CAPS + SYM + `V`: paste it
+  onto the cursor's channel of the pattern you are in (a pasted note that uses
+  an envelope brings its row's envelope period along if the row has none).
+- SYM + `U`: **undo** the last edit to the pattern. A second SYM + `U` redoes
+  it. One step is kept, and it is forgotten when you leave the pattern.
 
-Copy remembers *which* pattern you copied, so if you edit the original
-before pasting you paste the edited version.
+Copy remembers *which* pattern (or channel) you copied, so if you edit the
+original before pasting you paste the edited version.
 
 # The arrangement editor
 
@@ -394,7 +405,8 @@ SYM + `H` shows every key on one screen. Any key returns to the editor.
 |---|---|
 | `A` play `L` loop | `S` save `D` load / directory |
 | `I` `X` insert / delete row | `Z` clear channel `N` new song |
-| `C` `V` copy / paste pattern | `T` `Y` transpose (+CAPS = octave) |
+| `C` `V` copy / paste pattern (+CAPS = channel) | `T` `Y` transpose (+CAPS = octave) |
+| `U` undo / redo | |
 | `O` `P` position | `F` arrangement `G` song info |
 | `E` samples `R` ornaments | `W` envelope period `B` noise |
 | `K` edit step | `H` help `Q` quit |
@@ -407,11 +419,12 @@ ENTER rest; SPACE clear; on a field, its value.
 # Limits and notes
 
 - A song may use up to **85 patterns** and **200 positions**; the whole
-  song (instruments and patterns) must fit **13.5 K** when saved. The `Free`
+  song (instruments and patterns) must fit **11.5 K** when saved. The `Free`
   counter on row 22 shows the room left, including the pattern you are
   editing.
-- TS Tracker 2 edits **PT3** songs. **PT2** songs are listed but cannot be
-  loaded; the TS Tracker Player plays them.
+- TS Tracker 2 edits **PT3** songs. A **PT2** song is converted to PT3 when
+  it is loaded (see *Scanning a tape*); a PT2 bigger than about 5 K may not
+  leave room for the conversion.
 - Only rows that carry a note, a rest or a field change are stored, so a
   sparse pattern costs almost nothing; a noise change on an otherwise empty
   row is stored as an empty event.

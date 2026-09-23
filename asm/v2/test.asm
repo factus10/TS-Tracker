@@ -23,6 +23,13 @@ t_commit:                               ; mark dirty and commit the WP into the 
         ld      (wp_dirty),a
         jp      commit_pattern
 
+t_pt2:                                  ; harness: module at (pt2_src)/(pt2_len) -> convert; t_arg = 1 if it did not fit
+        call    pt2_convert
+        ld      a,0
+        rla
+        ld      (t_arg),a
+        ret
+
 t_dedup:                                ; share identical streams, reload the WP
         call    dedup_streams
         ld      a,(wp_pat)

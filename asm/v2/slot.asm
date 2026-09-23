@@ -302,6 +302,7 @@ slot_insert:
         ld      (fx_cnt),bc
         xor     a
         ld      (fx_mode),a
+        ld      (undo_valid),a          ; the song may grow over the snapshot
         call    fix_all
         ld      hl,(song_len)
         add     hl,bc
@@ -413,6 +414,7 @@ wp_load:
         call    dec_pattern
         xor     a
         ld      (wp_dirty),a
+        ld      (undo_valid),a          ; a different pattern: the snapshot no longer applies
         ld      hl,0
         ld      (wp_old_bytes),hl
         ld      a,(wp_pat)

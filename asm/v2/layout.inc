@@ -8,8 +8,9 @@
 ;   $7000-$7BFF  STAGE: encoder output / commit staging (3 KB)
 ;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, tape
 ;                directory, preview song, IM2 vector table at $7E00)
-;   $8000-$C7FF  this program + PTxPlay (one CODE block, 18 KB)
-;   $C800-$FDFF  SLOT:  the PT3 song itself = the source of truth (13.5 KB)
+;   $8000-$CFFF  this program + PTxPlay (one CODE block, 20 KB)
+;   $D000-$FDFF  SLOT:  the PT3 song itself = the source of truth (11.5 KB); its
+;                unused top holds the one-level undo snapshot of the working pattern
 ;   $FE00-$FEFF  our stack (grows down from $FF00); $FF58+ UDGs (BASIC's)
 ; =============================================================================
 
@@ -23,9 +24,9 @@ AY_REG      EQU $F5
 AY_DAT      EQU $F6
 
 CODE_BASE   EQU $8000
-SLOT_BASE   EQU $C800            ; moved up for code each phase: $AB00 -> $B800 -> $C000 -> $C800
+SLOT_BASE   EQU $D000            ; moved up for code each phase: $AB00 -> $B800 -> $C000 -> $C800 -> $D000
 SLOT_END    EQU $FE00            ; Phase 4: the stack region shrank to 256 B
-SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 13824
+SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 11776
 
 WP_BASE     EQU $6A00
 WP_ROWS     EQU 64
@@ -54,6 +55,9 @@ IM2_TABLE   EQU $7E00                   ; 257 B  our IM2 vector table, every byt
 IM2_VEC     EQU $7F7F                   ; 3 B    -> JP isr_frames (filled in at start)
 
 STACK_TOP   EQU $FF00
+
+UNDO_SIZE   EQU WP_SIZE+1                ; working pattern + its length
+UNDO_BUF    EQU SLOT_END-UNDO_SIZE       ; snapshot, valid only while the song stays below it
 
 ; ---- PT3 header offsets ----
 H_SPEED     EQU 100
