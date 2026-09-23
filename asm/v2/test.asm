@@ -23,6 +23,12 @@ t_commit:                               ; mark dirty and commit the WP into the 
         ld      (wp_dirty),a
         jp      commit_pattern
 
+t_dedup:                                ; share identical streams, reload the WP
+        call    dedup_streams
+        ld      a,(wp_pat)
+        call    wp_load
+        jp      update_free
+
 t_directory:                            ; harness: DIR_BUF/dir_count prefilled -> directory screen,
         ld      sp,STACK_TOP            ; then continue exactly like start does after screen_start
         call    screen_directory

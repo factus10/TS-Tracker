@@ -16,6 +16,11 @@ song_init:
         ld      (cur_row),a
         ld      (cur_chan),a
         ld      (cur_field),a
+        ld      (play_mute),a
+        ld      (copy_src),a
+        dec     a
+        ld      (copy_src),a            ; $FF = nothing copied
+        xor     a
         inc     a
         ld      (cur_sample),a          ; a new/loaded song starts on sample 1 / ornament 1
         ld      (se_sel_smp),a
@@ -582,6 +587,182 @@ commit_pattern:
 .fail:  pop     hl
         pop     bc
         scf
+        ret
+
+; ---- dedup_streams: make identical channel streams shared ---------------------
+; Pass 1 caches every stream's length (a word per table entry at STAGE_BASE,
+; index pattern*3+channel). Pass 2 looks, for each entry, for an EARLIER entry
+; of the same length at a different offset with identical bytes; relinks to it
+; and deletes the orphaned stream if nothing still points at it (fix_all keeps
+; the table and instrument pointers right). Call with the WP committed (STAGE
+; is scratch here) and reload the WP afterwards (wp_old_bytes may change).
+DD_LEN      EQU STAGE_BASE
+dedup_streams:
+        ld      hl,(song_len)
+        ld      de,SLOT_BASE
+        add     hl,de
+        ld      (stream_limit),hl
+        ld      a,(num_pats)
+        ld      b,a
+        add     a,a
+        add     a,b
+        ld      (dd_n),a                ; entries (<= 255: at most 85 patterns)
+        ; pass 1: lengths
+        xor     a
+        ld      (dd_i),a
+.p1:    ld      a,(dd_i)
+        call    dd_entry
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)
+        ld      hl,SLOT_BASE
+        add     hl,de
+        push    hl
+        call    stream_end              ; (uses IX and the decoder scratch)
+        pop     de
+        or      a
+        sbc     hl,de                   ; HL = length
+        push    hl
+        ld      a,(dd_i)
+        call    dd_len                  ; HL -> cache word (uses DE)
+        pop     de
+        ld      (hl),e
+        inc     hl
+        ld      (hl),d
+        ld      hl,dd_i
+        inc     (hl)
+        ld      a,(dd_n)
+        cp      (hl)
+        jr      nz,.p1
+        ; pass 2
+        ld      a,1
+        ld      (dd_i),a
+.i:     ld      a,(dd_i)
+        ld      hl,dd_n
+        cp      (hl)
+        ret     nc
+        xor     a
+        ld      (dd_j),a
+.j:     ld      a,(dd_i)
+        call    dd_lenv                 ; HL = length of i
+        push    hl
+        ld      a,(dd_j)
+        call    dd_lenv
+        pop     de
+        or      a
+        sbc     hl,de                   ; same length?
+        jp      nz,.nextj
+        ld      a,(dd_i)
+        call    dd_entry
+        ld      e,(hl)
+        inc     hl
+        ld      d,(hl)                  ; DE = offset i
+        push    de
+        ld      a,(dd_j)
+        call    dd_entry
+        ld      c,(hl)
+        inc     hl
+        ld      b,(hl)                  ; BC = offset j
+        pop     de
+        ld      h,d
+        ld      l,e
+        or      a
+        sbc     hl,bc
+        jp      z,.nextj                ; already the same stream
+        push    de                      ; [off_i]
+        push    bc                      ; [off_i, off_j]
+        ld      a,(dd_i)
+        call    dd_lenv
+        ld      b,h
+        ld      c,l                     ; BC = length
+        pop     de                      ; off_j
+        pop     hl                      ; off_i
+        push    hl
+        push    de                      ; [off_i, off_j] again
+        push    bc
+        ld      bc,SLOT_BASE
+        add     hl,bc                   ; HL = stream i
+        ex      de,hl
+        add     hl,bc                   ; HL = stream j
+        ex      de,hl                   ; HL = i, DE = j
+        pop     bc
+.cmp:   ld      a,(de)
+        cp      (hl)
+        jr      nz,.diff
+        inc     hl
+        inc     de
+        dec     bc
+        ld      a,b
+        or      c
+        jr      nz,.cmp
+        ; identical: entry i -> offset j
+        pop     bc                      ; off_j
+        pop     de                      ; off_i
+        push    de
+        ld      a,(dd_i)
+        call    dd_entry
+        ld      (hl),c
+        inc     hl
+        ld      (hl),b
+        ; does anything still use stream i?  (pattern = i/3, channel = i mod 3)
+        ld      a,(dd_i)
+        call    div3
+        ld      b,a                     ; pattern
+        add     a,a
+        add     a,b
+        ld      c,a
+        ld      a,(dd_i)
+        sub     c
+        ld      c,a                     ; channel
+        ld      a,b
+        pop     de
+        push    de
+        call    stream_shared
+        pop     de
+        jr      nz,.nexti
+        push    de
+        ld      a,(dd_i)
+        call    dd_lenv
+        ld      b,h
+        ld      c,l
+        pop     de
+        ld      hl,SLOT_BASE
+        add     hl,de
+        call    slot_delete             ; fix_all moves every table entry / instrument pointer
+        jr      .nexti
+.diff:  pop     bc
+        pop     de
+.nextj: ld      hl,dd_j
+        inc     (hl)
+        ld      a,(dd_i)
+        cp      (hl)
+        jp      nz,.j
+.nexti: ld      hl,dd_i
+        inc     (hl)
+        jp      .i
+
+dd_lenv:                                ; A = entry index -> HL = cached length value
+        call    dd_len
+        ld      a,(hl)
+        inc     hl
+        ld      h,(hl)
+        ld      l,a
+        ret
+dd_len:                                 ; A = entry index -> HL -> cached length word
+        ld      l,a
+        ld      h,0
+        add     hl,hl
+        ld      de,DD_LEN
+        add     hl,de
+        ret
+dd_entry:                               ; A = entry index -> HL -> its table word
+        ld      l,a
+        ld      h,0
+        add     hl,hl
+        ld      de,(SLOT_BASE+H_PATPTR)
+        add     hl,de
+        ld      de,SLOT_BASE
+        add     hl,de
         ret
 
 ; ---- new_song: copy the template into the slot and initialise -----------------

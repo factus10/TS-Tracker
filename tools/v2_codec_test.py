@@ -20,7 +20,7 @@ import pt3codec as C
 
 ZESARUX = "/Applications/zesarux.app/Contents/MacOS/zesarux"
 PORT = 10001            # our own ZRCP port: never touches an emulator the user launched
-CODE_BASE, SLOT_BASE, WP_BASE, STAGE_BASE = 0x8000, 0xC000, 0x6A00, 0x7000   # overridden from the .sym below
+CODE_BASE, SLOT_BASE, WP_BASE, STAGE_BASE = 0x8000, 0xC800, 0x6A00, 0x7000   # overridden from the .sym below
 TRAP, SP_TOP = 0x5B00, 0xFEFE
 DEFAULT_SONGS = [
     "songs/3BIT - Debugger - SPRLZ4Ev2004.pt3",

@@ -304,6 +304,10 @@ cmd_load:
 cmd_save:
         call    commit_pattern
         jp      c,commit_failed_loop
+        call    dedup_streams           ; identical channel streams become shared
+        ld      a,(wp_pat)
+        call    wp_load
+        call    update_free
         call    cls
         ld      bc,(1<<8)|0
         ld      hl,s_save_title

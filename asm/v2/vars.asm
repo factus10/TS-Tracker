@@ -25,6 +25,10 @@ cur_row:       db 0
 cur_chan:      db 0
 cur_field:     db 0
 octave:        db 4
+edit_step:     db 1                     ; rows the cursor advances after a note
+copy_src:      db $FF                   ; pattern copied with SYM+C ($FF none)
+ed_buf:        ds 6                     ; hex prompt buffer
+ed_n:          db 0
 cur_sample:    db 1
 ed_val:        db 0
 
@@ -73,12 +77,23 @@ ss_ch:         db 0
 ss_p:          db 0
 ss_off:        dw 0
 cm_off:        dw 0
+dd_n:          db 0                     ; de-dup: entries, outer, inner index
+dd_i:          db 0
+dd_j:          db 0
 
 ; ---- player ----
 play_div:      db 0
 play_follow:   db 0
 play_lastpos:  db 0
-play_hold:     db 0                     ; 1 = play while ENTER is held (preview)
+play_hold:     db 0                     ; 1 = play while a key is held (preview)
+play_min:      db 0                     ; preview: frames still to play even if released
+play_mute:     db 0                     ; bits 0-2: channel muted
+play_row:      db 0                     ; row being played (follow)
+play_shownrow: db 0
+play_posdirty: db 0
+play_loopmode: db 0                     ; 1 = looping one pattern (private list)
+play_lastframe: db 0
+vu_ch:         db 0
 
 ; ---- tape ----
 tp_flag:       db 0
@@ -126,8 +141,9 @@ se_tmp:        db 0
 se_row:        db 0
 pv_smp:        db 0
 pv_orn:        db 0
-pv_env:        db 0
 pv_note:       db 0
+pv_shape:      db 0                     ; 0 auto (8 if the sample uses the envelope), 1-14 shape, 15 none
+pv_per:        dw 0                     ; envelope period, 0 = auto (tone period / 16)
 
 ; ---- test harness ----
 t_arg:         db 0

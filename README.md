@@ -36,10 +36,13 @@ full guide and a step-by-step "your first tune" walkthrough.
 A from-scratch **assembly-language** rewrite of the editor with an
 SQ-Tracker-style interface is under way in [`asm/v2/`](asm/v2/) — see
 [`docs/redesign-plan.md`](docs/redesign-plan.md) for the assessment, plan and
-status. Phases 1–3 are done: a playable editor whose PT3 codec is verified
+status. Phases 1–4 are done: a playable editor whose PT3 codec is verified
 byte-for-byte against every bundled song, tape load/save with a directory
-scan, a song-info screen, an arrangement (position list) editor, and sample /
-ornament editors with a held-key preview. Build:
+scan, a song-info screen, an arrangement (position list) editor, sample /
+ornament editors with a held-key preview, follow-cursor playback with mute
+keys and a VU, copy/paste, transpose, command parameters, envelope period and
+noise entry, note preview on entry, an edit step, and stream de-duplication on
+save. Build:
 
 ```sh
 make tracker2                                      # build/v2/tracker2.tap

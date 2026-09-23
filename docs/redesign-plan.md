@@ -243,7 +243,8 @@ shares them, inserting the new ones, and fixing every pointer that moves
 (pattern table, 32 sample pointers, 16 ornament pointers). Edits still persist
 automatically; there is no user-visible commit. The pattern count is now bounded
 only by the slot. The slot started at 20 KB with a clean return to BASIC; Phases
-2 and 3 each moved its base up 2 KB to make room for code (current map below):
+2, 3 and 4 each moved its base up 2 KB to make room for code, and Phase 4 gave
+the slot 768 B back by shrinking the stack region to 256 B (current map below):
 
 | Region | Range | Size | Notes |
 | --- | --- | ---: | --- |
@@ -251,10 +252,10 @@ only by the slot. The slot started at 20 KB with a clean return to BASIC; Phases
 | System variables, BASIC stack, dispatcher, loader | `$5B00–$69FF` | 3,840 | untouched → `Quit` returns to BASIC |
 | **WP** working pattern (64 rows × 24 B) | `$6A00–$6FFF` | 1,536 | note, smp\|flags, env\|orn, vol\|cmd, 3 param bytes per cell; env period + noise per row |
 | **STAGE** encoder output / commit staging | `$7000–$7BFF` | 3,072 | |
-| MISC scratch (event lists, noise carriers, later the tape directory) | `$7C00–$7FFF` | 1,024 | |
-| **v2 code + tables + PTxPlay** | `$8000–$BFFF` | 16,384 | one CODE block; Phase 3 uses 15,896 B (Phase 1: 9,718 at `$AB00`, Phase 2: 13,373 at `$B800`) |
-| **PT3 song slot** | `$C000–$FAFF` | **15,104** | vs 7,424 in v1; the bundled songs are 3.0–5.5 KB |
-| Our stack, ROM tape workspace, UDG | `$FB00–$FFFF` | 1,280 | SP = `$FF00` |
+| MISC scratch (event lists, noise carriers, tape directory, preview song, IM2 vector table at `$7E00`) | `$7C00–$7FFF` | 1,024 | |
+| **v2 code + tables + PTxPlay** | `$8000–$C7FF` | 18,432 | one CODE block; Phase 4 uses 17,513 B (Phase 1: 9,718 at `$AB00`, Phase 2: 13,373 at `$B800`, Phase 3: 15,896 at `$C000`) |
+| **PT3 song slot** | `$C800–$FDFF` | **13,824** | vs 7,424 in v1; the bundled songs are 3.0–5.5 KB |
+| Our stack, UDG | `$FE00–$FFFF` | 512 | SP = `$FF00`; the stack needs well under 256 B |
 
 This supersedes the "Plan A / Plan B" split: Plan A's clean return is kept
 *and* Plan B's 20 KB slot is obtained, because the decoded model no longer
@@ -283,8 +284,72 @@ byte-identical output by `tools/v2_codec_test.py`.
 | **1** | **Playable editor** (`asm/v2/`, `make tracker2`). Slot-is-the-model architecture; PT3 decoder/encoder/splice ported to asm and held byte-identical to the Python reference; PTxPlay in the same binary; New song; play from position / loop pattern; field-aware editing (piano, octave retune, base-32 sample, envelope, ornament, volume), rest, clear, insert/delete row, clear channel; position prev/next with automatic commit; help page; live "Free" counter | 9,718 B incl. PTxPlay | **done** — see below |
 | **2** | **Tape + arrangement** (`asm/v2/tape.asm`, `dir.asm`, `posedit.asm`, `songinfo.asm`; tests `tools/v2_tape_test.py`, `tools/v2_arrange_test.py`). EXROM LD-BYTES/SA-BYTES trampolines with BREAK caught via ERRSP (a scan ends cleanly when the tape runs out); start screen, tape scan + 9-entry directory with format detection, load by name, Save with an 8-char name + version suffix; song-info screen (title, author, speed); arrangement editor (type pattern, insert, delete, loop point, create pattern, pattern length) | +3.7 KB | **done** — see below |
 | **3** | **Instrument editors** (`asm/v2/instr.asm`; test `tools/v2_instr_test.py`). Sample editor (SYM+E): per line T/N/E mixer flags, signed tone offset with accumulate, signed noise/envelope offset with accumulate, volume, amplitude slide; ornament editor (SYM+R): signed semitone per line; both: Len/Rep prompts, insert/delete line, create on first edit, fork shared blocks, ENTER-held preview through PTxPlay (envelope shape 8 at pitch when the sample uses the envelope) | +2.5 KB | **done** — see below |
-| **4** | **SQ parity extras:** copy/paste pattern, transpose (`tUP/tDN`), follow-cursor playback with mute keys and VU, PT3 command column with parameter entry, row-global envelope period / noise entry, note preview on entry, de-duplicate identical streams on save, edit step | +1.5 KB | next — needs room: 488 B free at `$C000`; take the stack region down to 256 B (`SLOT_END` → `$FE00`, +768 B) and/or move the slot once more |
-| **5** | Manual + README refresh, screenshots, release bundle; retire `tracker.c` (player unchanged) | — | |
+| **4** | **SQ parity extras** (test `tools/v2_phase4_test.py`): follow-cursor playback (the grid scrolls under the playing row, the editor lands where playback stopped) with `1 2 3` mute keys and a three-channel VU; copy/paste pattern (SYM+C/V); transpose channel ±1 / ±12 (SYM+T/Y, +CAPS); PT3 command column with hex parameter entry; row envelope period (SYM+W) and noise (SYM+B); note preview on entry (held key); edit step (SYM+K); identical streams de-duplicated on save | +1.6 KB | **done** — see below |
+| **5** | Manual + README refresh, screenshots, release bundle; retire `tracker.c` (player unchanged). Candidates first: PT2 import (convert on load), a "modified" indicator, undo | — | next |
+
+### Phase 4 result (2026-09-22)
+
+| Playing with follow, channel A muted (VU on the detail row) | Command parameters in the detail row |
+| --- | --- |
+| ![playing](screenshots/v2-phase4-playing.png) | ![command](screenshots/v2-phase4-command.png) |
+
+- **Room.** The slot base moved to `$C800` (code region 18 KB) and the stack region
+  shrank from 1 KB to 256 B (`SLOT_END` `$FB00` → `$FE00`), so the song slot is 13.5 KB.
+  Build: 15,238 B code+data + 2,275 B PTxPlay = 17,513 B, 919 B free.
+- **Own interrupt handler (IM2).** The Phase 4 test caught a one-byte corruption of a
+  pasted pattern: the decoder holds its cell pointer in IY, the paste ran while SYM+V
+  was still held, and the ROM's IM1 handler writes system variables relative to IY on a
+  key event. The Phase 1 fix (restore IY afterwards) cannot protect code while it runs,
+  and the encoder and instrument editors have the same exposure. The program now
+  installs its own IM2 handler at start (a 257-byte table of `$7F` at `$7E00`, `JP` at
+  `$7F7F`) that only bumps FRAMES; the keyboard was already scanned by `kb_scan`. Quit
+  restores IM1. Side benefit: the ROM's keyboard routine no longer costs ~1,200 T per
+  frame.
+- **Playback follows the editor's model.** `play_run` now counts ticks from the ROM's
+  FRAMES counter instead of one `halt` per tick: a grid redraw that overruns a frame is
+  caught up with two PLAY calls in the next one, so the song never slows down while the
+  screen scrolls. The playing row is read from PTxPlay's own state (`DelyCnt` equals
+  `Delay` right after a row was decoded; `CurPos` changes on a new position), the WP is
+  reloaded when the position changes, and the cursor row is set to the playing row, so
+  the grid scrolls under it exactly as in the editor. When playback stops the editor is
+  at the position/row that was playing. `1 2 3` toggle channel mutes without stopping
+  (amplitude registers zeroed after PTxPlay's dump); the detail row shows a VU
+  (`A ######## B ...`, muted letters in red) built from PTxPlay's register shadow.
+  Loop-pattern mode follows too (rows wrap at the pattern length).
+- **Preview.** `pv_play` (player.asm) is now generic: sample, ornament, envelope shape
+  (auto / explicit / none) and period (auto = at pitch). Typing a note previews it with
+  the cell's sample, ornament and envelope (and the row's period) for as long as the key
+  is held, at least 8 frames so a quick tap still sounds; the instrument editors use the
+  same routine.
+- **Editing.** Copy remembers the pattern index and paste decodes it into the WP over
+  the current pattern (no clipboard buffer; the source's own edits are committed when
+  you leave it). Transpose acts on the cursor's channel over the pattern, ±1 semitone
+  or ±12 with CAPS. The command field takes a hex digit (1 2 3 4 5 8 9; 0 = clear) and
+  prompts for its parameters in hex (3, 3, 1, 1, 2, 3, 1 bytes; portamento's two ignored
+  bytes are hidden); the detail row now reads `Sm.. EP.... Nz.. Lnn C. pp pp pp` — the
+  fields that duplicated the cell (Or Vl En) made way for the command and its params.
+  SYM+W sets the row's envelope period (refused unless a cell on the row has an
+  envelope shape, since PT3 stores the period with the shape); SYM+B sets the row's
+  noise (blank = none). SYM+K sets the edit step (0–9, shown as `St` on the info row).
+  The hex prompt right-aligns a lone digit like the decimal one.
+- **De-dup on save.** `dedup_streams` caches every stream's length in STAGE, then for
+  each table entry looks for an earlier entry of the same length at a different offset
+  with identical bytes, relinks to it and deletes the orphaned stream (`slot_delete`
+  fixes every pointer). Runs after the commit in Save, before the name prompt; the WP is
+  reloaded afterwards. It undoes the growth from canonical private re-encoding: a pasted
+  pattern costs nothing after the save.
+- **Verified.** `tools/v2_phase4_test.py` drives every new operation on Kenotron and
+  checks the WP / slot after each (step, note + preview, command params incl. the lone
+  digit, SPACE clear, envelope shape + period, the refusal without a shape, noise
+  set/blank/lone digit, four transposes round-tripping, copy → next position → paste,
+  follow-play row advance + grid tracking + mute/unmute + stop position, loop-pattern
+  rows, save → de-dup sharing the two identical patterns and shrinking the song).
+  Finally the two edited patterns decode to a Python model of the edits, every other
+  pattern is unchanged and every instrument block byte-identical: **PASS**. Codec parity
+  (105 checks), the arrangement and instrument suites pass on the same build; the tape
+  suite passes with the new load address.
+- **Not in Phase 4:** undo, a "song modified" indicator, per-channel copy/paste, and
+  the PT2 import (all Phase 5 candidates).
 
 ### Phase 3 result (2026-09-22)
 
@@ -446,6 +511,7 @@ byte-identical output by `tools/v2_codec_test.py`.
 | `tools/v2_tape_test.py` | real-time tape scan/load/save through the EXROM routines (ZEsarUX `--realtape` / `--outtape`) |
 | `tools/v2_arrange_test.py` | drives the arrangement editor and song-info screen, then checks the slot structurally |
 | `tools/v2_instr_test.py` | drives the sample and ornament editors (every operation, preview, create, fork), checking the slot after each step |
+| `tools/v2_phase4_test.py` | drives step, preview, command params, envelope period, noise, transpose, copy/paste, follow-play + mutes, loop, de-dup on save |
 | `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |
 | `tools/mktap.py` | Wrap a raw binary in a `.tap` with a ROM-BASIC loader (also used for extra CODE blocks) |

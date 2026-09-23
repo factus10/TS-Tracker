@@ -3,9 +3,11 @@
 > **Sept 2026 — v2 (all-assembly, SQ-Tracker-style) is in progress.** Plan and
 > status: [`docs/redesign-plan.md`](docs/redesign-plan.md). Phases 1 (playable
 > editor, codec-verified against every bundled song), 2 (tape load/save,
-> directory, arrangement editor, song info) and 3 (sample and ornament editors
-> with preview) are done; Phase 4 (copy/paste, transpose, follow-play, command
-> parameters, de-dup on save) is next. The C tracker
+> directory, arrangement editor, song info), 3 (sample and ornament editors
+> with preview) and 4 (follow-play with mutes and VU, copy/paste, transpose,
+> command parameters, envelope period / noise entry, note preview, edit step,
+> de-dup on save) are done; Phase 5 (manual, release, retire tracker.c; PT2
+> import, modified indicator, undo as candidates) is next. The C tracker
 > below is now **tracker-classic**: kept building until v2 reaches parity, no
 > new features. Its backlog items move to the v2 phases.
 

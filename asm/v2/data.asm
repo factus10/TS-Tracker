@@ -22,9 +22,9 @@ s_tag_song:  db " SONG",0
 s_tag_edit:  db " EDIT",0
 s_tag_goto:  db " GOTO",0
 s_menu_song: db "^A Play ^L Loop ^S Save ^D Load",0
-s_menu_edit: db "^I^X Row ^Z Clr ^E Smp ^R Orn",0
+s_menu_edit: db "^I^X Row ^C^V Cpy ^E Smp ^R Orn",0
 s_menu_goto: db "^O^P Pos ^F Arr ^G Info ^Q Quit",0
-s_info:      db "Pos   /   Pat   /   Spd    Oct  ",0
+s_info:      db "Pos   /   Pat   /   Sp   Oc  St ",0
 s_head:      db "Rw",G_VBAR,"A   seovc",G_VBAR,"B   seovc",G_VBAR,"C   seovc",0
 s_rule:      db G_HBAR,G_HBAR,G_TUP
         DUP 9
@@ -39,11 +39,11 @@ s_rule:      db G_HBAR,G_HBAR,G_TUP
         db      G_HBAR
         EDUP
         db      0
-s_detail:    db "Sm   Or  Vl  En  EP     Nz   L  ",0
+s_detail:    db "Sm   EP     Nz   L   C          ",0
 s_free:      db "Free        Pos                 ",0
 s_hint_edit: db " SYM+H help    CAPS+5678 cursor ",0
-s_hint_play: db " Playing song -- any key stops  ",0
-s_hint_loop: db " Looping pattern -- any key stops",0
+s_hint_play: db " Playing  1/2/3 mute  key stops ",0
+s_hint_loop: db " Looping  1/2/3 mute  key stops ",0
 
 ; ---- messages (hint row, error colours) ------------------------------------
 s_msg_noroom:       db "No room in song for this pattern",0
@@ -98,6 +98,15 @@ s_si_l_counts: db "Positions    loop     patts",0
 s_si_l_bytes:  db "Song       bytes  free",0
 s_hint_si:     db " T title  A author  ENTER/Q back ",0
 
+; ---- pattern editor: copy / transpose / row globals / command params / step ------
+s_msg_copied:   db "Pattern copied: SYM+V pastes it ",0
+s_msg_nocopy:   db "Nothing copied yet (SYM+C)      ",0
+s_msg_noenv:    db "Set an envelope shape here first",0
+s_msg_envper:   db "Envelope period (hex):",0
+s_msg_noise:    db "Noise 0-1F (blank = none):",0
+s_msg_step:     db "Edit step (0-9):",0
+s_msg_params:   db "Command params (hex):",0
+
 ; ---- instrument editors -----------------------------------------------------------
 s_se_smp:     db "SAMPLE ",0
 s_se_orn:     db "ORNAMENT ",0
@@ -128,14 +137,15 @@ help_text:
         db      "*Other fields",0
         db      "s sample 1-9,A-V  e env 0=off",0
         db      "o ornament 0-F    v volume 1-F",0
-        db      "SPACE clears the field",0
+        db      "c command 1-9 + params  SPC clr",0
         db      0
         db      "*SYMBOL SHIFT + letter",0
         db      "A play  L loop  S save  D load",0
-        db      "O/P position  F arrangement",0
-        db      "G song info  N new  Q quit",0
-        db      "E samples  R ornaments",0
-        db      "I/X ins/del row  Z clear chan",0
+        db      "O/P pos  F arrange  G info",0
+        db      "E samples  R ornaments  N new",0
+        db      "I/X row  Z clr chan  C/V copy",0
+        db      "T/Y transpose  W envp  B noise",0
+        db      "K step  H help  Q quit",0
         db      0
         db      "Any key returns to the editor.",0
         db      $FF
@@ -147,6 +157,7 @@ custom_font:
         db      $00,$00,$00,$FF,$FF,$18,$18,$18   ; 130 T down
         db      $18,$18,$18,$FF,$FF,$00,$00,$00   ; 131 T up
         db      $18,$18,$18,$FF,$FF,$18,$18,$18   ; 132 cross
+        db      $00,$7E,$7E,$7E,$7E,$7E,$7E,$00   ; 133 VU block
 
 ; ---- new-song template ------------------------------------------------------------
         INCLUDE "template.inc"

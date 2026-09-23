@@ -111,9 +111,7 @@ ed_plain:
         jp      z,ed_orn_key
         cp      4
         jp      z,ed_vol_key
-        ; field 5 = command: parameters are edited in a later phase
-        ld      hl,s_msg_later
-        jp      flash_message
+        jp      ed_cmd_key              ; field 5 = command
 
 ; --- note field: piano letters, digits 1..8 = octave -----------------------
 ed_note_key:
@@ -165,8 +163,32 @@ ed_note_key:
         or      c
         ld      (hl),a                  ; give the new note the current sample
 .hassmp:
+        ; preview it with the cell's sample / ornament / envelope while the key is held
+        ld      a,(hl)
+        and     $1F
+        ld      (pv_smp),a
+        inc     hl
+        ld      a,(hl)
+        and     $0F                     ; ornament (unset -> 0, which is PTxPlay's default)
+        ld      (pv_orn),a
+        ld      a,(hl)
+        rrca
+        rrca
+        rrca
+        rrca
+        and     $0F
+        ld      (pv_shape),a            ; 0 auto, 1-14 shape, 15 none
+        ld      a,(cur_row)
+        call    wp_row_addr
+        ld      d,(hl)
+        inc     hl
+        ld      e,(hl)
+        ld      (pv_per),de
+        ld      a,(ed_val)
+        ld      (pv_note),a
         call    mark_dirty
-        jp      ed_advance
+        call    ed_advance
+        jp      pv_play
 
 ; semitone_of: A = note 0..95 -> A = A mod 12
 semitone_of:
@@ -194,10 +216,11 @@ ed_rest:
         call    mark_dirty
         jp      ed_advance
 
-; ed_advance: step the cursor one row down after a note/rest and redraw
+; ed_advance: step the cursor (edit_step) rows down after a note/rest and redraw
 ed_advance:
-        ld      a,(cur_row)
-        inc     a
+        ld      a,(edit_step)
+        ld      hl,cur_row
+        add     a,(hl)
         ld      hl,wp_len
         cp      (hl)
         jr      nc,.stay
@@ -546,6 +569,20 @@ ed_sym:
         jp      z,cmd_sample
         cp      'R'
         jp      z,cmd_ornament
+        cp      'C'
+        jp      z,cmd_copy
+        cp      'V'
+        jp      z,cmd_paste
+        cp      'T'
+        jp      z,cmd_transp_up
+        cp      'Y'
+        jp      z,cmd_transp_dn
+        cp      'W'
+        jp      z,cmd_envper
+        cp      'B'
+        jp      z,cmd_noise
+        cp      'K'
+        jp      z,cmd_step
         ld      hl,s_msg_later
         call    flash_message
         jp      editor_loop
@@ -651,6 +688,364 @@ goto_pos:
 .rowok: call    update_free
         call    redraw_dynamic
         jp      editor_loop
+
+; ---------------------------------------------------------------------------
+; SYM+C / SYM+V: copy the current pattern, paste it over the current one.
+; Copy remembers the pattern index; paste decodes that pattern into the WP (the
+; copy's own edits are committed when you leave it), so no clipboard buffer is
+; needed. The pasted streams are re-encoded privately on commit; saving
+; de-duplicates them again.
+; ---------------------------------------------------------------------------
+cmd_copy:
+        ld      a,(wp_pat)
+        ld      (copy_src),a
+        ld      hl,s_msg_copied
+        call    flash_message
+        jp      editor_loop
+cmd_paste:
+        ld      a,(copy_src)
+        ld      hl,num_pats
+        cp      (hl)
+        jr      nc,.none
+        ld      hl,wp_pat
+        cp      (hl)
+        jp      z,editor_loop           ; onto itself: nothing to do
+        call    dec_pattern             ; wp_pat / wp_old_bytes stay the target's
+        call    mark_dirty
+        ld      a,(cur_row)
+        ld      hl,wp_len
+        cp      (hl)
+        jr      c,.ok
+        ld      a,(hl)
+        dec     a
+        ld      (cur_row),a
+.ok:    call    redraw_edit
+        jp      editor_loop
+.none:  ld      hl,s_msg_nocopy
+        call    flash_message
+        jp      editor_loop
+
+; ---------------------------------------------------------------------------
+; SYM+T / SYM+Y: transpose the cursor's channel one semitone up / down over
+; the whole pattern; with CAPS held as well, an octave. Notes that would leave
+; C-1..B-8 stay put.
+; ---------------------------------------------------------------------------
+cmd_transp_up:
+        ld      a,1
+        jr      transpose
+cmd_transp_dn:
+        ld      a,-1
+transpose:
+        ld      (ed_val),a
+        call    kb_caps
+        jr      z,.go
+        ld      a,(ed_val)
+        ld      b,a
+        add     a,a
+        add     a,a
+        ld      c,a                     ; 4x
+        add     a,a                     ; 8x
+        add     a,c                     ; 12x
+        ld      (ed_val),a
+.go:    ld      a,(wp_len)
+        ld      b,a
+        xor     a
+.row:   push    bc
+        push    af
+        ld      c,a
+        ld      a,(cur_chan)
+        ld      e,a
+        ld      a,c
+        ld      c,e
+        call    wp_cell_addr
+        ld      a,(hl)
+        cp      96
+        jr      nc,.skip
+        ld      e,a
+        ld      a,(ed_val)
+        add     a,e
+        cp      96
+        jr      nc,.skip
+        ld      (hl),a
+.skip:  pop     af
+        pop     bc
+        inc     a
+        djnz    .row
+        call    mark_dirty
+        call    redraw_edit
+        jp      editor_loop
+
+; ---------------------------------------------------------------------------
+; SYM+W: envelope period of the cursor row (4 hex digits). PT3 stores it with
+; an envelope shape, so a shape must be set somewhere on the row.
+; SYM+B: noise of the cursor row (2 hex digits, blank = none).
+; SYM+K: edit step (0-9).
+; ---------------------------------------------------------------------------
+cmd_envper:
+        ld      a,(cur_row)
+        call    wp_row_addr
+        push    hl
+        inc     hl
+        inc     hl
+        inc     hl                      ; cell A
+        ld      b,3
+.chk:   inc     hl
+        inc     hl
+        ld      a,(hl)                  ; env<<4|orn
+        and     $F0
+        jr      z,.nxt
+        cp      ENV_OFF<<4
+        jr      nz,.has
+.nxt:   ld      de,WP_CELLSZ-2
+        add     hl,de
+        djnz    .chk
+        pop     hl
+        ld      hl,s_msg_noenv
+        call    flash_message
+        jp      editor_loop
+.has:   pop     hl
+        push    hl
+        ld      a,(hl)
+        ld      de,ed_buf
+        ex      de,hl
+        call    hex2_to_buf
+        ex      de,hl
+        inc     hl
+        ld      a,(hl)
+        ex      de,hl
+        call    hex2_to_buf
+        ld      hl,s_msg_envper
+        ld      b,4
+        call    prompt_hex              ; ed_buf right-aligned, CY = cancelled
+        pop     hl
+        jp      c,redraw_editor_loop
+        ld      de,ed_buf
+        ex      de,hl
+        call    buf_to_hex2
+        ex      de,hl
+        jp      c,redraw_editor_loop
+        ld      (hl),a
+        inc     hl
+        ex      de,hl
+        call    buf_to_hex2
+        ex      de,hl
+        jp      c,redraw_editor_loop
+        ld      (hl),a
+        call    mark_dirty
+        jp      redraw_editor_loop
+
+cmd_noise:
+        ld      a,(cur_row)
+        call    wp_row_addr
+        inc     hl
+        inc     hl
+        push    hl
+        ld      a,(hl)
+        ld      hl,ed_buf
+        ld      (hl),' '
+        inc     hl
+        ld      (hl),' '
+        dec     hl
+        cp      NZ_NONE
+        jr      z,.p
+        call    hex2_to_buf
+.p:     ld      hl,s_msg_noise
+        ld      b,2
+        call    prompt_hex
+        pop     hl
+        jp      c,redraw_editor_loop
+        ld      a,(ed_buf+1)
+        cp      ' '
+        jr      nz,.val
+        ld      (hl),NZ_NONE            ; blank: no noise change on this row
+        jr      .set
+.val:   push    hl
+        ld      hl,ed_buf
+        call    buf_to_hex2
+        pop     hl
+        jp      c,redraw_editor_loop
+        cp      32
+        jp      nc,redraw_editor_loop
+        ld      (hl),a
+.set:   call    mark_dirty
+        jp      redraw_editor_loop
+
+cmd_step:
+        ld      a,(edit_step)
+        ld      hl,s_msg_step
+        call    se_prompt2
+        jp      c,redraw_editor_loop
+        cp      10
+        jp      nc,redraw_editor_loop
+        ld      (edit_step),a
+redraw_editor_loop:
+        call    redraw_edit
+        ld      hl,s_hint_edit
+        call    draw_hint
+        jp      editor_loop
+
+; ---------------------------------------------------------------------------
+; Command field: a hex digit sets the PT3 command (1 tone slide, 2 portamento,
+; 3 sample position, 4 ornament position, 5 vibrato, 8 envelope slide, 9 speed;
+; 0 = clear) and prompts for its parameters in hex (1-3 bytes; portamento's
+; two ignored bytes are not shown).
+; ---------------------------------------------------------------------------
+ed_cmd_key:
+        ld      a,c
+        call    hex_value
+        ret     c
+        or      a
+        jp      z,ed_clear
+        ld      c,a
+        call    param_count_of
+        or      a
+        ret     z                       ; not a PT3 command
+        cp      5
+        jr      nz,.n
+        ld      a,3
+.n:     ld      (ed_n),a
+        ld      a,c
+        ld      (ed_val),a
+        call    cell_make_event
+        call    cursor_cell
+        inc     hl
+        inc     hl
+        inc     hl
+        ld      a,(hl)
+        and     $F0
+        ld      c,a
+        ld      a,(ed_val)
+        or      c
+        ld      (hl),a
+        inc     hl                      ; -> p0
+        push    hl
+        ld      a,(ed_n)
+        ld      b,a
+        ld      de,ed_buf
+.tob:   ld      a,(hl)
+        inc     hl
+        ex      de,hl
+        call    hex2_to_buf
+        ex      de,hl
+        djnz    .tob
+        ld      a,(ed_n)
+        add     a,a
+        ld      b,a
+        ld      hl,s_msg_params
+        call    prompt_hex
+        pop     hl
+        jr      c,.done                 ; cancelled: command set, params kept
+        push    hl
+        ld      a,(ed_n)
+        ld      b,a
+        ld      de,ed_buf
+.frb:   push    bc
+        ex      de,hl
+        call    buf_to_hex2
+        ex      de,hl
+        pop     bc
+        jr      c,.bad
+        ld      (hl),a
+        inc     hl
+        djnz    .frb
+.bad:   pop     hl
+.done:  call    mark_dirty
+        call    redraw_edit
+        ld      hl,s_hint_edit
+        jp      draw_hint
+
+; prompt_hex: HL = message, B = field width (ed_buf holds the current text) ->
+; the field on the hint row; on ENTER the text is right-aligned (a lone digit
+; typed after clearing means itself). CY set = cancelled.
+prompt_hex:
+        push    bc
+        call    draw_message
+        pop     bc
+        ld      a,32
+        sub     b
+        ld      (pt_col),a
+        ld      a,R_HINT
+        ld      (pt_row),a
+        push    bc
+        ld      hl,ed_buf
+        call    prompt_text
+        pop     bc
+        ret     c
+        ; right-align: while the last cell is a space, shift the text right
+        ld      a,b
+        dec     a
+        ret     z
+        ld      c,a                     ; up to width-1 shifts
+.ra:    ld      hl,ed_buf-1
+        ld      a,b
+        add     a,l
+        ld      l,a
+        jr      nc,.n1
+        inc     h
+.n1:    ld      a,(hl)                  ; last cell
+        cp      ' '
+        jr      nz,.ok
+        push    bc
+        ld      d,h
+        ld      e,l
+        dec     hl
+        ld      a,b
+        dec     a
+        ld      c,a
+        ld      b,0
+        lddr                            ; shift right by one
+        ld      hl,ed_buf
+        ld      (hl),' '
+        pop     bc
+        dec     c
+        jr      nz,.ra
+.ok:    or      a
+        ret
+
+; hex2_to_buf: A -> two ASCII hex digits at (HL), HL += 2
+hex2_to_buf:
+        push    af
+        rrca
+        rrca
+        rrca
+        rrca
+        call    hex_chr
+        ld      (hl),a
+        inc     hl
+        pop     af
+        call    hex_chr
+        ld      (hl),a
+        inc     hl
+        ret
+hex_chr:                                ; A = 0..15 -> ASCII
+        and     $0F
+        cp      10
+        jr      c,.d
+        add     a,'A'-'0'-10
+.d:     add     a,'0'
+        ret
+
+; buf_to_hex2: two ASCII at (HL) -> A, HL += 2; a space counts as 0; CY = bad
+buf_to_hex2:
+        ld      a,(hl)
+        call    .dig
+        ret     c
+        rlca
+        rlca
+        rlca
+        rlca
+        ld      c,a
+        inc     hl
+        ld      a,(hl)
+        call    .dig
+        ret     c
+        inc     hl
+        or      c
+        ret
+.dig:   cp      ' '
+        jp      nz,hex_value
+        xor     a
+        ret
 
 ; ---------------------------------------------------------------------------
 ; Prompts

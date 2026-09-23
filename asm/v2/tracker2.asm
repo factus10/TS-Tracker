@@ -16,6 +16,23 @@ start:
         di
         ld      (saved_sp),sp
         ld      sp,STACK_TOP
+        ; Our own interrupt handler (IM2). The ROM's IM1 handler writes system
+        ; variables relative to IY on every key event, and the codec routines use
+        ; IY as their cell pointer: with the ROM handler live, a key held while a
+        ; pattern is decoded or encoded could corrupt the working pattern. The
+        ; handler below only bumps FRAMES; the keyboard is scanned by kb_scan.
+        ld      hl,IM2_TABLE
+        ld      de,IM2_TABLE+1
+        ld      bc,256
+        ld      (hl),IM2_VEC>>8         ; every vector byte $7F -> $7F7F
+        ldir
+        ld      a,$C3                   ; JP isr_frames at $7F7F
+        ld      (IM2_VEC),a
+        ld      hl,isr_frames
+        ld      (IM2_VEC+1),hl
+        ld      a,IM2_TABLE>>8
+        ld      i,a
+        im      2
         xor     a
         out     ($FE),a
         call    ay_silence
@@ -32,6 +49,9 @@ start:
 
 quit_to_basic:
         di
+        im      1                       ; back to the ROM's handler
+        ld      a,$3F
+        ld      i,a
         push    ix
         push    iy
         call    MUTE
@@ -44,6 +64,19 @@ quit_to_basic:
         ld      sp,(saved_sp)
         ei
         ret
+
+; isr_frames: the whole interrupt handler -- FRAMES (60 Hz) for key repeat and
+; the player's tick catch-up. Nothing here depends on IY.
+isr_frames:
+        push    af
+        push    hl
+        ld      hl,(FRAMES)
+        inc     hl
+        ld      (FRAMES),hl
+        pop     hl
+        pop     af
+        ei
+        reti
 
         INCLUDE "screen.asm"
         INCLUDE "keys.asm"

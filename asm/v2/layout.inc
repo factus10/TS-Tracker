@@ -6,11 +6,11 @@
 ;                the tiny BASIC loader -- untouched, so Quit returns to BASIC
 ;   $6A00-$6FFF  WP:    working pattern (the ONE decoded pattern being edited)
 ;   $7000-$7BFF  STAGE: encoder output / commit staging (3 KB)
-;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, later the
-;                tape directory)
-;   $8000-$BFFF  this program + PTxPlay (one CODE block, 16 KB)
-;   $C000-$FAFF  SLOT:  the PT3 song itself = the source of truth (14.75 KB)
-;   $FB00-$FEFF  our stack (grows down from $FF00); $FF58+ UDGs (BASIC's)
+;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, tape
+;                directory, preview song, IM2 vector table at $7E00)
+;   $8000-$C7FF  this program + PTxPlay (one CODE block, 18 KB)
+;   $C800-$FDFF  SLOT:  the PT3 song itself = the source of truth (13.5 KB)
+;   $FE00-$FEFF  our stack (grows down from $FF00); $FF58+ UDGs (BASIC's)
 ; =============================================================================
 
 SCREEN      EQU $4000
@@ -23,9 +23,9 @@ AY_REG      EQU $F5
 AY_DAT      EQU $F6
 
 CODE_BASE   EQU $8000
-SLOT_BASE   EQU $C000            ; Phase 3: moved up from $B800 (Phase 2: from $AB00) for the instrument editors
-SLOT_END    EQU $FB00
-SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 15104
+SLOT_BASE   EQU $C800            ; moved up for code each phase: $AB00 -> $B800 -> $C000 -> $C800
+SLOT_END    EQU $FE00            ; Phase 4: the stack region shrank to 256 B
+SONG_BUDGET EQU SLOT_END-SLOT_BASE      ; 13824
 
 WP_BASE     EQU $6A00
 WP_ROWS     EQU 64
@@ -50,6 +50,8 @@ PV_TABLE    EQU MISC_BASE+336           ; 6 B   note preview: private pattern ta
 PV_BC       EQU MISC_BASE+342           ; 4 B   note preview: empty stream for channels B and C
 PV_A        EQU MISC_BASE+346           ; 10 B  note preview: channel A stream
 MISC_FREE   EQU MISC_BASE+360
+IM2_TABLE   EQU $7E00                   ; 257 B  our IM2 vector table, every byte $7F
+IM2_VEC     EQU $7F7F                   ; 3 B    -> JP isr_frames (filled in at start)
 
 STACK_TOP   EQU $FF00
 
@@ -110,6 +112,7 @@ G_HBAR      EQU 129
 G_TDOWN     EQU 130
 G_TUP       EQU 131
 G_CROSS     EQU 132
+G_BLOCK     EQU 133             ; VU bar cell
 
 REPEAT_DELAY EQU 18
 REPEAT_RATE  EQU 3

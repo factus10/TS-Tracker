@@ -300,7 +300,7 @@ $(BUILDDIR)/asm/ui_poc.tap: $(BUILDDIR)/asm/ui_poc.bin tools/mktap.py
 # the editor. See docs/redesign-plan.md.
 V2DIR = $(BUILDDIR)/v2
 V2SRC = $(wildcard asm/v2/*.asm) $(wildcard asm/v2/*.inc)
-V2_SLOT_HEX = C000   # must match SLOT_BASE in asm/v2/layout.inc
+V2_SLOT_HEX = C800   # must match SLOT_BASE in asm/v2/layout.inc
 
 tracker2: $(V2DIR)/tracker2.tap
 

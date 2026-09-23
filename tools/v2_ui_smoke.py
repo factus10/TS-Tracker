@@ -87,7 +87,7 @@ def main():
             time.sleep(2)
             r = z.cmd("get-registers").lower()
             m = re.search(r"pc=([0-9a-f]{4})", r); pc = int(m.group(1), 16) if m else -1
-            if 0x8000 <= pc < 0xAB00 or (pc < 0x100 and "sp=fe" in r):   # our code, or the ISR on our stack
+            if 0x8000 <= pc < 0xC800 or (pc < 0x100 and "sp=fe" in r):   # our code, or the ISR on our stack
                 running = True; break
         time.sleep(1.5)
         print("running" if running else "NOT RUNNING", "PC=%04X after %.0fs" % (z.pc(), time.time() - t0))

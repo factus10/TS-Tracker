@@ -438,7 +438,7 @@ draw_message:
         jp      print_at
 
 ; =============================================================================
-; Info line values: Pos xx/yy Pat xx/yy Spd xx Oct x
+; Info line values: Pos xx/yy Pat xx/yy Spxx Ocx Stx
 ; =============================================================================
 draw_info:
         ld      a,R_INFO
@@ -458,14 +458,20 @@ draw_info:
         ld      a,(num_pats)
         call    put_dec2
         ld      a,R_INFO
-        ld      c,24
+        ld      c,22
         call    scr_addr
         ld      a,(SLOT_BASE+H_SPEED)
         call    put_dec2
         ld      a,R_INFO
-        ld      c,31
+        ld      c,27
         call    scr_addr
         ld      a,(octave)
+        add     a,'0'
+        call    put_char
+        ld      a,R_INFO
+        ld      c,31
+        call    scr_addr
+        ld      a,(edit_step)
         add     a,'0'
         jp      put_char
 
@@ -710,7 +716,8 @@ cursor_cell:
         jr      wp_cell_addr
 
 ; =============================================================================
-; Detail row 21:  Sm.. Or. Vl. En. EP.... Nz.. L..
+; Detail row 21:  Sm.. EP.... Nz.. Lnn C. pp pp pp   (sample of the cursor cell,
+; the row's envelope period and noise, pattern length, command + its params)
 ; =============================================================================
 draw_detail:
         call    cursor_cell
@@ -721,72 +728,19 @@ draw_detail:
         pop     hl
         inc     hl
         ld      a,(hl)                  ; smp|flags
-        ld      c,a
         and     $1F
         jr      z,.smpdots
         call    put_hex2
-        jr      .orn
+        jr      .ep
 .smpdots:
         ld      a,'.'
         call    put_char_adv
         call    put_char_adv
-.orn:   inc     hl
-        ld      a,R_DETAIL
-        push    hl
-        push    bc
-        ld      c,7
-        call    scr_addr
-        pop     bc
-        pop     hl
-        bit     5,c
-        ld      a,(hl)
-        and     $0F
-        jr      nz,.ornhex
-        bit     5,c
-        jr      nz,.ornhex
-        ld      a,'.'
-        call    put_char_adv
-        jr      .env
-.ornhex: call   put_hex1
-.env:   ld      a,R_DETAIL
-        push    hl
-        ld      c,15
-        call    scr_addr
-        pop     hl
-        ld      a,(hl)                  ; env<<4|orn
-        rrca
-        rrca
-        rrca
-        rrca
-        and     $0F
-        jr      z,.envdot
-        cp      ENV_OFF
-        jr      nz,.envhex
-        ld      a,'0'
-        call    put_char_adv
-        jr      .vol
-.envhex: call   put_hex1
-        jr      .vol
-.envdot: ld     a,'.'
-        call    put_char_adv
-.vol:   inc     hl
-        ld      a,R_DETAIL
-        push    hl
-        ld      c,11
-        call    scr_addr
-        pop     hl
-        ld      a,(hl)
-        rrca
-        rrca
-        rrca
-        rrca
-        call    put_dot_or_hex1
-        ; row globals: EP at col 20 (4 hex), Nz at col 27 (2), L at col 30 (2)
-        ld      a,(cur_row)
+.ep:    ld      a,(cur_row)
         call    wp_row_addr
         push    hl
         ld      a,R_DETAIL
-        ld      c,19
+        ld      c,7
         call    scr_addr
         pop     hl
         ld      a,(hl)
@@ -809,7 +763,7 @@ draw_detail:
 .nz:    inc     hl
         ld      a,R_DETAIL
         push    hl
-        ld      c,26
+        ld      c,14
         call    scr_addr
         pop     hl
         ld      a,(hl)
@@ -822,10 +776,51 @@ draw_detail:
         call    put_char_adv
         call    put_char_adv
 .len:   ld      a,R_DETAIL
-        ld      c,30
+        ld      c,18
         call    scr_addr
         ld      a,(wp_len)
-        jp      put_dec2
+        call    put_dec2
+        ; command + parameters of the cursor cell
+        call    cursor_cell
+        push    hl
+        ld      a,R_DETAIL
+        ld      c,22
+        call    scr_addr
+        pop     hl
+        inc     hl
+        inc     hl
+        inc     hl
+        ld      a,(hl)
+        and     $0F
+        jr      nz,.cmd
+        ld      a,'.'
+        call    put_char_adv
+        ld      b,9
+        jp      put_spaces
+.cmd:   push    af
+        call    put_hex1
+        inc     e
+        pop     af
+        call    param_count_of          ; A = bytes to show (2 -> 3)
+        cp      5
+        jr      nz,.n
+        ld      a,3
+.n:     ld      b,a
+        ld      c,3
+.pp:    inc     hl
+        ld      a,b
+        or      a
+        jr      z,.blank
+        dec     b
+        ld      a,(hl)
+        call    put_hex2
+        jr      .sep
+.blank: inc     e
+        inc     e
+.sep:   inc     e
+        dec     c
+        jr      nz,.pp
+        ret
 
 ; =============================================================================
 ; Row 22: Free nnnnn  Pos p0 p1 [p2] p3 p4   (window of 5 positions)

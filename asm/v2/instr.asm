@@ -838,13 +838,10 @@ times10_plus:
         ret
 
 ; ---------------------------------------------------------------------------
-; ENTER: play the instrument while the key is held. PTxPlay is initialised on
-; the real song (note table, speed), then pointed at a private one-position
-; song: pattern table PV_TABLE, channel A stream PV_A (skip 64, ornament,
-; envelope or not, sample, note), channels B/C the empty stream PV_BC. The
-; sample editor plays its sample with ornament 0; the ornament editor plays its
-; ornament with the pattern editor's current sample. If any line of the sample
-; enables the envelope, shape 8 is used at the note's pitch.
+; ENTER: play the instrument while the key is held (pv_play in player.asm).
+; The sample editor plays its sample with ornament 0; the ornament editor plays
+; its ornament with the pattern editor's current sample. Envelope: automatic
+; (shape 8 at the note's pitch when the sample uses the envelope).
 ; ---------------------------------------------------------------------------
 se_preview:
         call    se_refresh
@@ -866,34 +863,11 @@ se_preview:
         ld      (pv_orn),a
         ld      a,c
         ld      (pv_smp),a
-        add     a,a
-        ld      hl,SLOT_BASE+H_SMPPTRS
-        add     a,l
-        ld      l,a
-        jr      nc,.n1
-        inc     h
-.n1:    ld      e,(hl)
-        inc     hl
-        ld      d,(hl)
-        ld      a,d
-        or      e
-        jp      z,se_loop               ; that sample has no data
-        ld      hl,SLOT_BASE
-        add     hl,de
-        inc     hl
-        ld      b,(hl)                  ; lines
-        inc     hl
         xor     a
-        ld      (pv_env),a
-.scan:  bit     0,(hl)
-        jr      nz,.nx
-        ld      a,1
-        ld      (pv_env),a
-.nx:    inc     hl
-        inc     hl
-        inc     hl
-        inc     hl
-        djnz    .scan
+        ld      (pv_shape),a
+        ld      h,a
+        ld      l,a
+        ld      (pv_per),hl
         ld      a,(octave)
         dec     a
         ld      b,a
@@ -902,95 +876,7 @@ se_preview:
         add     a,a
         add     a,a                     ; (octave-1)*12 = C
         ld      (pv_note),a
-        ld      hl,SLOT_BASE
-        call    INIT
-        ld      hl,PV_TABLE
-        ld      (PatsPtr),hl
-        ld      de,PV_A-SLOT_BASE
-        ld      (hl),e
-        inc     hl
-        ld      (hl),d
-        inc     hl
-        ld      de,PV_BC-SLOT_BASE
-        ld      (hl),e
-        inc     hl
-        ld      (hl),d
-        inc     hl
-        ld      (hl),e
-        inc     hl
-        ld      (hl),d
-        ld      hl,PV_BC
-        ld      (hl),$B1
-        inc     hl
-        ld      (hl),$40
-        inc     hl
-        ld      (hl),$D0
-        inc     hl
-        ld      (hl),$00
-        ld      hl,PV_A
-        ld      (hl),$B1
-        inc     hl
-        ld      (hl),$40
-        inc     hl
-        ld      a,(pv_orn)
-        or      $40
-        ld      (hl),a
-        inc     hl
-        ld      a,(pv_env)
-        or      a
-        jr      z,.noenv
-        ld      (hl),$18                ; envelope shape 8 (sawtooth)...
-        inc     hl
-        ld      a,(pv_note)             ; ...at the note's pitch: tone period / 16
-        add     a,a
-        ld      e,a
-        ld      d,0
-        push    hl
-        ld      hl,NT_
-        add     hl,de
-        ld      e,(hl)
-        inc     hl
-        ld      d,(hl)
-        pop     hl
-        srl     d
-        rr      e
-        srl     d
-        rr      e
-        srl     d
-        rr      e
-        srl     d
-        rr      e
-        ld      a,d
-        or      e
-        jr      nz,.ep
-        inc     e
-.ep:    ld      (hl),d
-        inc     hl
-        ld      (hl),e
-        inc     hl
-        jr      .smp
-.noenv: ld      (hl),$10                ; sample, envelope off
-        inc     hl
-.smp:   ld      a,(pv_smp)
-        add     a,a
-        ld      (hl),a
-        inc     hl
-        ld      a,(pv_note)
-        add     a,$50
-        ld      (hl),a
-        inc     hl
-        ld      (hl),0                  ; end of pattern -> loops -> retrigger
-        ld      hl,LOOP_LIST
-        ld      (hl),0
-        inc     hl
-        ld      (hl),$FF
-        ld      hl,LOOP_LIST
-        ld      (LPosPtr),hl
-        dec     hl
-        ld      (CrPsPtr),hl
-        xor     a
-        ld      (play_follow),a
-        call    play_hold_enter
+        call    pv_play
         jp      se_loop
 
 ; ---------------------------------------------------------------------------
