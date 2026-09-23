@@ -41,3 +41,9 @@ t_directory:                            ; harness: DIR_BUF/dir_count prefilled -
         call    screen_directory
         call    redraw_all
         jp      editor_loop
+
+t_startscr:                             ; harness: the start screen again (tpi_ok may be forced)
+        ld      sp,STACK_TOP
+        call    screen_start
+        call    redraw_all
+        jp      editor_loop

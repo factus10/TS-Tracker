@@ -26,6 +26,8 @@ EXROM_SABYTES EQU $0068           ; W_TAPE proper (returns via W_BORD; BREAK -> 
 tape_read:                              ; LOAD (CY set on entry to R_TAPE)
         ld      (tp_sp),sp
         call    tape_enter
+        ld      a,1                     ; T_ADDR: LOAD (the TPI intercepts send it to the Pico)
+        ld      (T_ADDR),a
         ld      a,(tp_flag)
         ld      ix,(tp_dest)
         ld      de,(tp_len)
@@ -36,6 +38,8 @@ tape_read:                              ; LOAD (CY set on entry to R_TAPE)
 tape_verify:                            ; VERIFY: consumes a block without storing it
         ld      (tp_sp),sp
         call    tape_enter
+        ld      a,1
+        ld      (T_ADDR),a
         ld      a,(tp_flag)
         ld      ix,(tp_dest)
         ld      de,(tp_len)
@@ -46,6 +50,8 @@ tape_verify:                            ; VERIFY: consumes a block without stori
 tape_write:                             ; SAVE
         ld      (tp_sp),sp
         call    tape_enter
+        xor     a                       ; T_ADDR: SAVE
+        ld      (T_ADDR),a
         ld      a,(tp_flag)
         ld      ix,(tp_dest)
         ld      de,(tp_len)
@@ -64,7 +70,9 @@ tape_result:
 ; page the EXROM in, hook ERRSP. DECR ($FF) and HSR ($F4) are WRITE-ONLY on
 ; the 2068 (reading them returns the floating bus), so never read-modify-write
 ; them: we run in the standard state (DECR $80 = EXROM enabled, interrupts on,
-; normal video; HSR $00 = all chunks HOME) and only flip HSR bit 0.
+; normal video; HSR $00 = all chunks HOME) and only flip HSR bits 0 (and 1).
+; tp_hsr is 1 for the stock 8K EXROM; 3 for the TS-PICO's 16K TPI EXROM, whose
+; tape intercepts run code in chunk 1 ($2000-$3FFF) and read TP_BANK / TP_SID.
 DECR_NORMAL EQU $80
 tape_enter:
         di
@@ -74,8 +82,14 @@ tape_enter:
         ld      (ERRSP),hl
         ld      a,DECR_NORMAL
         out     ($FF),a
-        ld      a,1                     ; chunk 0 from DOCK = EXROM at $0000-$1FFF
+        ld      a,(tp_hsr)              ; chunk 0 (and 1) from DOCK = EXROM
         out     ($F4),a
+        cp      3
+        ret     nz
+        ld      a,$FF                   ; TPI: home bank, no BASIC session
+        ld      (TP_BANK),a
+        ld      hl,0
+        ld      (TP_SID),hl
         ret
 
 ; page back, unhook ERRSP, border black, interrupts on
@@ -154,7 +168,13 @@ tape_read_song:
 ; bigger ones are read in VERIFY mode. VERIFY "fails" on the first differing
 ; byte -- which is every byte of a different song -- so the result is ignored.
 ; A BREAK here shows up on the NEXT header read (the leader wait sees SPACE).
+; On the TS-PICO there is nothing to wait through: the next header request
+; skips the data block by itself, and a VERIFY that stops on the first byte
+; would leave the Pico half way through sending the block.
 tape_consume:
+        ld      a,(sd_mode)
+        or      a
+        jr      nz,.sd
         call    tape_hdr_len
         ld      (tp_len),hl
         ld      de,SONG_BUDGET+1
@@ -168,7 +188,8 @@ tape_consume:
         call    tape_read
         jr      .done
 .big:   call    tape_verify
-.done:  ld      a,1
+.done:
+.sd:    ld      a,1
         or      a
         ret
 

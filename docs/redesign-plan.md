@@ -251,9 +251,9 @@ the slot 768 B back by shrinking the stack region to 256 B (current map below):
 | Display file + attributes | `$4000–$5AFF` | 6,912 | |
 | System variables, BASIC stack, dispatcher, loader | `$5B00–$69FF` | 3,840 | untouched → `Quit` returns to BASIC |
 | **WP** working pattern (64 rows × 24 B) | `$6A00–$6FFF` | 1,536 | note, smp\|flags, env\|orn, vol\|cmd, 3 param bytes per cell; env period + noise per row |
-| **STAGE** encoder output / commit staging | `$7000–$7BFF` | 3,072 | |
-| MISC scratch (event lists, noise carriers, tape directory, preview song, IM2 vector table at `$7E00`) | `$7C00–$7FFF` | 1,024 | |
-| **v2 code + tables + PTxPlay** | `$8000–$CFFF` | 20,480 | one CODE block (Phase 1: 9,718 B at `$AB00`, Phase 2: 13,373 at `$B800`, Phase 3: 15,896 at `$C000`, Phase 4/5: 17,576 at `$C800`; Phase 6 moved the slot to `$D000`) |
+| **STAGE** encoder output / commit staging; the 64-entry tape / SD directory while scanning and loading | `$7000–$7BFF` | 3,072 | |
+| MISC scratch (event lists, noise carriers, tape header, preview song, IM2 vector table at `$7E00`) | `$7C00–$7FFF` | 1,024 | |
+| **v2 code + tables + PTxPlay** | `$8000–$CFFF` | 20,480 | one CODE block (Phase 1: 9,718 B at `$AB00`, Phase 2: 13,373 at `$B800`, Phase 3: 15,896 at `$C000`, Phase 4/5: 17,576 at `$C800`; Phase 6 moved the slot to `$D000`; Phase 7: 20,267 B, 213 B free) |
 | **PT3 song slot** | `$D000–$FDFF` | **11,776** | vs 7,424 in v1; the bundled songs are 3.0–5.5 KB. The unused top 1.5 KB holds the undo snapshot while the song is small enough |
 | Our stack, UDG | `$FE00–$FFFF` | 512 | SP = `$FF00`; the stack needs well under 256 B |
 
@@ -287,6 +287,53 @@ byte-identical output by `tools/v2_codec_test.py`.
 | **4** | **SQ parity extras** (test `tools/v2_phase4_test.py`): follow-cursor playback (the grid scrolls under the playing row, the editor lands where playback stopped) with `1 2 3` mute keys and a three-channel VU; copy/paste pattern (SYM+C/V); transpose channel ±1 / ±12 (SYM+T/Y, +CAPS); PT3 command column with hex parameter entry; row envelope period (SYM+W) and noise (SYM+B); note preview on entry (held key); edit step (SYM+K); identical streams de-duplicated on save | +1.6 KB | **done** — see below |
 | **6** | **Backlog:** one-level undo (SYM+U, snapshot in the unused top of the song slot), channel copy/paste (CAPS+SYM+C/V), PT2 import converted on load (`pt2conv.asm`, byte-identical to `tools/pt2conv.py`, AY-stream-equivalent to PTxPlay's own PT2 playback); slot moved to `$D000` (11.5 KB) | +1.7 KB | **done** — see below |
 | **5** | **Release.** User manual (`docs/manual-v2.md` + dot-matrix PDF) with fresh screenshots (`tools/v2_shots.py`), README and TODO rewritten around v2, `release/ts-tracker.zip` now ships `tracker2.tap`; `tracker.c` retired (`make tracker-classic` only); a `*` modified indicator on the SONG tag; version line on the start screen | +0.1 KB | **done** — see below |
+| **7** | **TS-PICO** (`asm/v2/pico.asm`; test `tools/v2_pico_test.py`): TPI ROM detection, 16K-EXROM paging and the TPI system variables for the intercepted tape calls, "TPI:" command frames byte-identical to the ROM's, an SD-card browser for raw `.pt3` files (**P**), raw-file save, Pico-safe block skipping; the directory grows to 64 entries with a scrolling cursor | +0.9 KB | **done in the emulator** — hardware pass pending, see below |
+
+### Phase 7 result (2026-09-23) — TS-PICO
+
+- **What the Pico ROM does for us.** Gus Pane's TPI EXROM (BIOS 21; disassembly and
+  protocol specs in the reference library) intercepts exactly the two entry points
+  `tape.asm` calls, W_TAPE `$0068` and R_TAPE `$00FC`: with `TP_MODE` (`$5DDB`) bit 1
+  set it runs the TPI protocol over ports `$0E`/`$0F` instead of the cassette port. So a
+  mounted `.tap` already scanned and loaded through our code — in principle. Three things
+  were wrong for a real Pico: the 16K EXROM keeps its serial routines in chunk 1
+  (`$2000–$3FFF`) and we paged only chunk 0 (`tape_enter` now writes HSR `3` when the
+  ROM is detected); the intercepts send `T_ADDR` (SAVE/LOAD), `TP_BANK` and `TP_SID` in
+  their pre-header and we never set them (set on every call now: `T_ADDR` 0/1, bank
+  `$FF`, session 0 = "not from BASIC"); and skipping a block by VERIFY stops on the first
+  differing byte, which on a Pico abandons a half-sent block — in SD mode a skip is now
+  simply the next header request, which is what BASIC's own `LOAD "name"` loop does.
+- **Detection.** `tpi_detect` pages the EXROM in at start and matches the shape of the
+  BIOS jump table at `$1840` (six `JR`s, two `JP`s, `LD BC,nn`/`RET`), then reads the
+  version with `G_VERS`. The start screen shows `P  browse the SD card` and
+  `TS-PICO TPI BIOS nn` only then; nothing TPI-related runs otherwise.
+- **"TPI:" commands.** `tpi_save`/`tpi_load` rebuild what EXROM `$1B8D` sends for
+  `SAVE "TPI:xxx"` / `LOAD "TPI:xxx"`: `42 taddr FF 0000 0000 len crc` → status → continue
+  flag → `44 len "TPI:xxx" crc` → continue flag → status, through the BIOS entries
+  `TX_A`/`RX_A`/`WF_NPH` so timing and BREAK handling are the ROM's. The harness redirects
+  those three calls to a fake Pico in RAM and compares every byte with a Python model of
+  the frames (`FMODE=RAW`, `REWIND`, both flavours), plus the failure paths (bad status
+  after either block, no continue flag, no BIOS).
+- **The SD-card flow.** **P**: SD mode on (the previous `TP_MODE` is restored at quit),
+  `TPI:FMODE=RAW`, `TPI:REWIND`, then the ordinary scan — in raw-file mode the Pico
+  serves the folder's files as a tape, one synthesized header per file — and the ordinary
+  directory. Every SD scan and load starts with `TPI:REWIND`, so both see the same block
+  sequence and a load picks its entry **by position** (a raw file's header carries only
+  the first ten characters of its name; two long names may share them, so the scan's
+  "repeated name = the tape looped" stop is off on the Pico too). A tape is still matched
+  by name; either search is bounded to 128 headers. Afterwards the Pico goes back to
+  `FMODE=TAP`; Save from a song
+  that came from the card sets `RAW` again around the write, so the song becomes a file
+  named like the header. `Pico error nn` reports a refused command with its status code.
+- **Directory.** Moved from MISC to STAGE (idle while scanning/loading) and grown to 64
+  entries; fifteen are shown, the selection inverted, CAPS+6/7 scroll, ENTER or 1–9 load.
+- **Verified.** `tools/v2_pico_test.py` (25 checks: frames, sysvars, error paths, start
+  screen with/without the BIOS, scrolling directory, the P flow end to end with a scan
+  ended by SPACE, `FMODE=TAP` on the way out). All earlier suites still pass. **Not yet
+  on hardware** — the raw-file semantics (does `FMODE=RAW` serve the folder as a tape,
+  what does the synthesized header carry) are inferred from the protocol documents, not
+  observed; `TODO.md` lists what to check on the machine and where to adjust.
+- **Room.** 17,992 B code+data + 2,275 B PTxPlay = 20,267 B; 213 B free below the slot.
 
 ### Phase 6 result (2026-09-23)
 
@@ -582,7 +629,7 @@ byte-identical output by `tools/v2_codec_test.py`.
 
 | Path | Purpose |
 | --- | --- |
-| `asm/v2/*.asm`, `asm/v2/layout.inc`, `asm/v2/template.inc` | the v2 tracker: `tracker2.asm` (top level), `screen`, `keys`, `pt3dec`, `pt3enc`, `slot`, `player`, `editor`, `tape`, `dir`, `posedit`, `songinfo`, `instr`, `data`, `vars`, `test` |
+| `asm/v2/*.asm`, `asm/v2/layout.inc`, `asm/v2/template.inc` | the v2 tracker: `tracker2.asm` (top level), `screen`, `keys`, `pt3dec`, `pt3enc`, `slot`, `player`, `editor`, `tape`, `dir`, `posedit`, `songinfo`, `instr`, `pt2conv`, `pico`, `data`, `vars`, `test` |
 | `tools/pt3codec.py` | PT3 pattern codec reference (decoder, canonical encoder, round-trip test, model/stream dumps) |
 | `tools/v2_codec_test.py` | Z80-vs-Python parity harness (ZEsarUX ZRCP, private port 10001) |
 | `tools/v2_ui_smoke.py` | boots the demo tape and drives the editor, saving screenshots |
@@ -593,6 +640,7 @@ byte-identical output by `tools/v2_codec_test.py`.
 | `tools/v2_shots.py` | captures every v2 screen for the manual and README |
 | `tools/v2_phase6_test.py` | undo and channel copy/paste |
 | `tools/pt2conv.py`, `tools/v2_pt2_test.py`, `tools/pt2_equiv_test.py` | PT2 → PT3 reference converter; Z80 parity; AY-stream equivalence through PTxPlay |
+| `asm/v2/pico.asm`, `tools/v2_pico_test.py` | TS-PICO: TPI ROM detection, "TPI:" command frames, SD-card flow; the harness's fake Pico and frame model |
 | `docs/manual-v2.md`, `docs/manual-v2.pdf` | the TS Tracker 2 user manual |
 | `Makefile` → `make tracker2`, `make tracker2-demo SONG=…` | builds `build/v2/tracker2.tap` / `tracker2-demo.tap` |
 | `asm/ui_poc.asm` | Phase-0 proof of concept (sjasmplus) |

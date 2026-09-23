@@ -17,16 +17,40 @@
       lives in the unused top of the song slot, so it is unavailable only when
       the song fills the slot to within 1.5 KB.
 - [x] **Per-channel copy/paste** (CAPS+SYM+C / CAPS+SYM+V).
-- [ ] **TS-PICO native file loading** — load any `.pt3` by filename via TPI
-      instead of scanning a tape.
+- [x] **TS-PICO native file loading** (`asm/v2/pico.asm`, 2026-09-23) — with
+      Gus Pane's TPI ROM the tape calls already reach the Pico; the editor now
+      pages the 16K EXROM correctly, sets the TPI system variables, sends
+      "TPI:" commands byte for byte like the ROM, and **P** on the start
+      screen browses the SD card's raw `.pt3` files (`FMODE=RAW` + `REWIND`,
+      then the usual scan: the Pico serves the files as a tape). Save writes
+      a raw file when the song came from the card. The directory grew to 64
+      entries with a scrolling cursor. Verified by `tools/v2_pico_test.py`
+      against a fake Pico; **not yet on hardware**.
 - [ ] Hardware verification on a real TS2068 (the suites run in ZEsarUX).
+      For the TS-PICO in particular, check on the machine:
+      1. `SAVE "TPI:SDCARD"`, mount the release `.tap`, `LOAD ""` the editor,
+         **S**: the scan lists the songs (skipping is now "ask for the next
+         header", no VERIFY), a song loads without a rewind prompt, SYM+S
+         saves into the `.tap` without a "start recording" prompt.
+      2. **P**: the start screen must show `TS-PICO TPI BIOS nn`; the card's
+         `.pt3` files must appear (header per file: first 10 characters of
+         the name, its size). If the list is empty or `Pico error nn` shows,
+         `FMODE=RAW` does not serve the directory as a tape on this firmware:
+         try `SAVE "TPI:FMODE=RAW"` + `LOAD "" CODE 53248` in BASIC to see
+         what a raw-mode LOAD returns, and adjust `sd_begin` / the scan.
+      3. A raw save (`SAVE TO SD CARD`) must create `NAME    nn` in the
+         current folder; the program then sends `FMODE=TAP`.
+      4. A quit must leave `TP_MODE` as it was found.
 
 ## Verification recipe
 
 `make tracker2` and `make tracker2-demo SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"`,
 then `tools/v2_codec_test.py`, `tools/v2_arrange_test.py <dir>`,
-`tools/v2_instr_test.py <dir>`, `tools/v2_phase4_test.py <dir>` and, alone,
-`tools/v2_tape_test.py <dir>`. All must pass before a release.
+`tools/v2_instr_test.py <dir>`, `tools/v2_phase4_test.py <dir>`,
+`tools/v2_phase6_test.py <dir>`, `tools/v2_pt2_test.py`,
+`tools/v2_pico_test.py <dir>` and, alone, `tools/v2_tape_test.py <dir>`
+(`<dir>` without spaces: the emulator's screenshot command needs that). All
+must pass before a release.
 
 ---
 

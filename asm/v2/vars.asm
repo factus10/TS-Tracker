@@ -119,6 +119,19 @@ de_idx:        db 0
 de_ent:        dw 0
 save_name:     db "SONG    "
 save_version:  db 1
+dir_top:       db 0                     ; first directory entry on screen
+dir_cur:       db 0                     ; selected entry
+ld_tries:      db 0                     ; headers still allowed while looking for the song
+
+; ---- TS-PICO ----
+tpi_ok:        db 0                     ; 1 = TPI BIOS found in the EXROM
+tpi_vers:      dw 0                     ; its version (G_VERS)
+tpi_err:       db 0                     ; last status byte ($FF = timeout or BREAK, $FE = no BIOS)
+tpi_taddr:     db 0                     ; 0 SAVE / 1 LOAD flavour of the command being sent
+sd_mode:       db 0                     ; 1 = TP_MODE says SD card: the tape calls reach the Pico
+sd_raw:        db 0                     ; 1 = browsing / saving raw .pt3 files (FMODE=RAW)
+sd_changed:    db 0                     ; 1 = we switched TP_MODE; restore sd_saved at quit
+sd_saved:      db 0
 
 ; ---- text prompt ----
 pt_buf:        dw 0

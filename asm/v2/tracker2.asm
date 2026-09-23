@@ -36,6 +36,7 @@ start:
         xor     a
         out     ($FE),a
         call    ay_silence
+        call    tpi_detect              ; TS-PICO TPI BIOS in the EXROM? (pages it in, so before EI)
         ei
         call    cls
         call    slot_has_song
@@ -48,7 +49,13 @@ start:
         jp      editor_loop
 
 quit_to_basic:
-        di
+        call    sd_end                  ; leave the Pico on .tap files
+        ld      a,(sd_changed)
+        or      a
+        jr      z,.mode
+        ld      a,(sd_saved)            ; and TP_MODE as we found it
+        ld      (TP_MODE),a
+.mode:  di
         im      1                       ; back to the ROM's handler
         ld      a,$3F
         ld      i,a
@@ -95,6 +102,7 @@ isr_frames_end:
         INCLUDE "songinfo.asm"
         INCLUDE "instr.asm"
         INCLUDE "pt2conv.asm"
+        INCLUDE "pico.asm"
         INCLUDE "data.asm"
         INCLUDE "vars.asm"
         INCLUDE "test.asm"

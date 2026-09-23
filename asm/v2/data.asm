@@ -58,14 +58,19 @@ s_splash2: db "PT3 editor for the TS-2068",0
 s_splash3: db "v2.0  --  64K Software 2026",0
 s_start_keys:  db "^S  scan a song tape",0
 s_start_keys2: db "^N  new song     ^Q  quit",0
+s_start_keys3: db "^P  browse the SD card",0
+s_start_bios:  db "TS-PICO TPI BIOS ",0     ; + version
 
 ; ---- tape directory / load / save ----------------------------------------------
 s_dir_title:  db "TAPE DIRECTORY",0
+s_sd_title:   db "SD CARD  (raw .pt3 files)",0
 s_dir_sub:    db "#  T  name        bytes",0
 s_dir_none:   db "(no songs found on the tape)",0
 s_scan_hint:  db "Scanning...",0
 s_hint_scan:  db " Play the tape. SPACE when it ends",0
-s_hint_dir:   db " 1-9 load  R rescan  N new  Q back",0
+s_hint_scan_sd: db " Reading SD card -- SPACE stops ",0
+s_hint_dir:   db " ENTER/1-9 load R scan N new Q  ",0
+s_msg_tpi:    db "Pico error    -- any key        ",0   ; status in hex at cols 11-12
 s_hint_loading: db " Loading... SPACE aborts         ",0
 s_msg_rewind:   db "Rewind tape, then any key (Q=no)",0
 s_msg_loadfail: db "Load failed or stopped -- any key",0
@@ -74,6 +79,7 @@ s_msg_pt2big:   db "PT2 too big to convert - any key",0
 s_hint_convert: db " Converting PT2 to PT3...       ",0
 s_msg_confirm_load: db "Load from tape? Song is lost Y/N",0
 s_save_title: db "SAVE TO TAPE",0
+s_save_title_sd: db "SAVE TO SD CARD",0
 s_save_l1:    db "Filename (8 chars) + version",0
 s_save_l2:    db "Letters, digits, space.",0
 s_save_l3:    db "Bytes:",0

@@ -5,9 +5,10 @@
 ;   $5C00-$69FF  system variables, BASIC machine stack ($6000-$61FF), dispatcher,
 ;                the tiny BASIC loader -- untouched, so Quit returns to BASIC
 ;   $6A00-$6FFF  WP:    working pattern (the ONE decoded pattern being edited)
-;   $7000-$7BFF  STAGE: encoder output / commit staging (3 KB)
-;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, tape
-;                directory, preview song, IM2 vector table at $7E00)
+;   $7000-$7BFF  STAGE: encoder output / commit staging (3 KB); the tape / SD-card
+;                directory while scanning and loading
+;   $7C00-$7FFF  MISC:  scratch (encoder event lists, noise carriers, tape header,
+;                preview song, IM2 vector table at $7E00)
 ;   $8000-$CFFF  this program + PTxPlay (one CODE block, 20 KB)
 ;   $D000-$FDFF  SLOT:  the PT3 song itself = the source of truth (11.5 KB); its
 ;                unused top holds the one-level undo snapshot of the working pattern
@@ -37,6 +38,10 @@ WP_END      EQU WP_BASE+WP_SIZE          ; $7000
 
 STAGE_BASE  EQU $7000
 STAGE_END   EQU $7C00
+DIR_BUF     EQU STAGE_BASE              ; DIR_MAX x 14 B directory: name[10], len(2), fmt, pad
+DIR_MAX     EQU 64
+DIR_ENTSZ   EQU 14
+DIR_VIS     EQU 15                      ; directory rows on screen (rows 4..18)
 
 MISC_BASE   EQU $7C00
 EV_ROWS     EQU MISC_BASE               ; 64 B  encoder: rows carrying an event (one channel)
@@ -44,9 +49,6 @@ NZ_CARRIER  EQU MISC_BASE+64            ; 64 B  encoder: channel carrying the ro
 SCRATCH_ROW EQU MISC_BASE+128           ; 24 B  dummy row for skip-decoding
 LOOP_LIST   EQU MISC_BASE+160           ; 2 B   private position list for "loop pattern"
 TAPE_HDR    EQU MISC_BASE+176           ; 17 B  tape header (type, name10, len, p1, p2)
-DIR_BUF     EQU MISC_BASE+208           ; 9 x 14 B tape directory
-DIR_MAX     EQU 9
-DIR_ENTSZ   EQU 14
 PV_TABLE    EQU MISC_BASE+336           ; 6 B   note preview: private pattern table (3 words)
 PV_BC       EQU MISC_BASE+342           ; 4 B   note preview: empty stream for channels B and C
 PV_A        EQU MISC_BASE+346           ; 10 B  note preview: channel A stream
@@ -55,6 +57,16 @@ IM2_TABLE   EQU $7E00                   ; 257 B  our IM2 vector table, every byt
 IM2_VEC     EQU $7F7F                   ; 3 B    -> JP isr_frames (filled in at start)
 
 STACK_TOP   EQU $FF00
+
+; ---- TS-PICO (Gus Pane's TPI ROMs): EXROM BIOS entries and system variables ----
+TPI_G_VERS  EQU $1844           ; BC = BIOS version
+TPI_TX_A    EQU $1846           ; send A to the Pico
+TPI_RX_A    EQU $1848           ; A = byte from the Pico
+TPI_WF_NPH  EQU $184C           ; wait for the continue flag; CY = timeout / BREAK
+T_ADDR      EQU $5C74           ; BASIC: 0 SAVE 1 LOAD 2 VERIFY 3 MERGE (the intercepts send it)
+TP_BANK     EQU $5DCF           ; $FF = HOME
+TP_SID      EQU $5DD1           ; session id (0 = not from a BASIC command)
+TP_MODE     EQU $5DDB           ; bit 1 = SD card instead of the cassette port
 
 UNDO_SIZE   EQU WP_SIZE+1                ; working pattern + its length
 UNDO_BUF    EQU SLOT_END-UNDO_SIZE       ; snapshot, valid only while the song stays below it

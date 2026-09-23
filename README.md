@@ -16,7 +16,8 @@ The editor is written in Z80 assembly ([sjasmplus](https://github.com/z00m128/sj
 the player is C built with [z88dk](https://github.com/z88dk/z88dk) (SDCC
 backend). Both embed S.V. Bulba's PTxPlay driver. Output is a Spectrum-format
 `.tap` that loads on **any** emulator (zesarux, FUSE, ...) and on real
-hardware via the **TS-PICO** in tape-emulation mode.
+hardware via the **TS-PICO**, from a mounted `.tap` or (the editor) straight
+from `.pt3` files on its SD card.
 
 ## The editor
 
@@ -126,7 +127,7 @@ Tape compatibility (both apps):
 | ------------------------------- | :---: | ----- |
 | `.tap` of CODE blocks in emulator |  ✓  | Both auto-looping and one-shot tape feed |
 | Real cassette on a TS2068        |  ✓  | End a scan by hand when the tape runs out |
-| TS-PICO SD card (tape mode)      |  ✓  | Mount the same `.tap`; works the same |
+| TS-PICO SD card (TPI ROM)        |  ✓  | `SAVE "TPI:SDCARD"`, then a mounted `.tap` scans like a tape; **P** on the editor's start screen browses the card's raw `.pt3` files (verified against the ROM's protocol in the emulator; hardware pass pending) |
 
 ## Status
 
@@ -138,7 +139,10 @@ Tape compatibility (both apps):
 - [x] Undo; per-channel copy/paste
 - [x] PT2 import (converted on load; verified against a Python reference and
       by comparing the AY register stream of original and conversion)
-- [ ] TS-PICO native file loading (load any `.pt3` by filename via TPI)
+- [x] TS-PICO native file loading: the editor talks TPI to the Pico's ROM,
+      browses the SD card's raw `.pt3` files and saves back as files (tested
+      in the emulator against the ROM's own protocol frames; not yet on
+      hardware, see `TODO.md`)
 
 The original C editor (v1.2, `src/tracker.c`) is retired: it still builds
 with `make tracker-classic` and its manual is [docs/manual.md](docs/manual.md),

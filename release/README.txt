@@ -42,9 +42,16 @@ After loading:
 On a real TS2068
 -----------------
 
-Same flow with real cassettes (or a TS-PICO in tape mode). When a song
-tape physically stops at the end of a scan, press SPACE (editor) or
-CAPS+SPACE (player) to end the scan.
+Same flow with real cassettes. When a song tape physically stops at the
+end of a scan, press SPACE (editor) or CAPS+SPACE (player) to end the scan.
+
+With a TS-PICO and its TPI ROM: SAVE "TPI:SDCARD", mount a .tap and
+LOAD "" as usual; S then scans the mounted .tap with no rewind prompts.
+The editor's start screen also offers P to browse the SD card's .pt3
+files directly (the current folder; saving writes a .pt3 file back).
+This part is new and was verified in the emulator against the ROM's
+protocol, not yet on hardware -- a "Pico error nn" message shows the
+TPI status code if the Pico objects.
 
 Source / latest
 ---------------

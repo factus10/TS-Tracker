@@ -54,6 +54,9 @@ load. When it has loaded, the **start screen** appears:
 
    S  scan a song tape
    N  new song     Q  quit
+
+   P  browse the SD card
+       TS-PICO TPI BIOS 21
 ```
 
 - Press **S** to scan a song tape and pick a song to edit (see *Scanning a
@@ -61,25 +64,32 @@ load. When it has loaded, the **start screen** appears:
 - Press **N** to start a **new song**: an empty 64-row pattern, one sample,
   one ornament and speed 6 --- the same starting point Vortex Tracker gives
   you.
+- Press **P** to browse the `.pt3` files on a **TS-PICO**'s SD card. The two
+  bottom lines appear only on a TS2068 whose TS-PICO ROM is installed (see
+  *The SD card (TS-PICO)*).
 - Press **Q** to return to BASIC.
 
 # Scanning a tape
 
 Press **S** on the start screen, start the tape playing, and TS Tracker 2
 reads every block header it finds. Each song's name appears in a
-**directory** of up to nine entries with its format (`3` for PT3, `2` for
-PT2, `?` for anything else) and size in bytes. The border flashes in the usual tape
-colours while a block is being read.
+**directory** of up to 64 entries, fifteen to a screen, with its format (`3`
+for PT3, `2` for PT2, `?` for anything else) and size in bytes. The border
+flashes in the usual tape colours while a block is being read.
 
 The scan ends by itself when the directory is full or when a name repeats
 (emulators loop their tapes). On a real cassette the tape simply runs out, so
 **press SPACE when the tape has finished** to end the scan.
 
-On the directory screen:
+![The directory, scrolled to its sixteenth entry](screenshots/v2-directory.png)
+
+On the directory screen the selected entry is shown inverted:
 
 | Key | Action |
 |-----|--------|
-| `1`--`9` | Load that song for editing (rewind first!) |
+| CAPS + `6` / `7` | Move the selection down / up (the list scrolls) |
+| ENTER | Load the selected song for editing (rewind first!) |
+| `1`--`9` | Load the song on that row of the screen |
 | `R` | Rescan the tape |
 | `N` | Start a new song instead |
 | `Q` | Back to the start screen |
@@ -95,6 +105,46 @@ conversion follows the same rules the player uses to play PT2, so it sounds
 the same. One difference to know about: PT2 sets the noise pitch per channel,
 PT3 per row, so in the rare pattern where two channels set different noise
 pitches on the same row the last one wins.
+
+# The SD card (TS-PICO)
+
+![The start screen on a TS2068 with a TS-PICO](screenshots/v2-start-pico.png)
+
+A TS2068 fitted with a **TS-PICO** running Gus Pane's TPI ROM can use the
+Pico's SD card instead of a cassette. TS Tracker 2 notices that ROM at start
+and shows its version on the start screen (`TS-PICO TPI BIOS 21`).
+
+**A `.tap` on the card.** Put the Pico in SD mode from BASIC, mount a tape
+image and load the editor the usual way:
+
+```
+SAVE "TPI:SDCARD"
+LOAD "TPI:tracker2.tap"
+LOAD ""
+```
+
+From then on every tape operation --- **S**, loading, SYM + `S` --- goes to
+the mounted `.tap` through the Pico. There is nothing to rewind and no
+"start recording" prompt: the program moves the Pico's tape pointer itself.
+
+**Raw `.pt3` files.** Press **P** on the start screen and the directory shows
+the `.pt3` (and `.pt2`) files in the card's current folder --- each under the
+first ten characters of its file name, with its size --- exactly like a tape
+directory (two files whose names start alike are told apart by their place in
+the list). Move to a file and press ENTER to load it. SYM + `S` then **saves
+back to the card** as a file named `NAME    nn` (the name you typed and the
+version number) in the same folder. The program switches the Pico to raw
+files while it browses or saves and back to `.tap` files afterwards, so
+BASIC finds the card as it left it; Q on the start screen restores the
+tape/SD mode too.
+
+If the Pico refuses a command, `Pico error nn` appears on the bottom row:
+`nn` is the TPI status code (`FF` means it did not answer within the
+protocol's timeout, or BREAK was pressed). The SD-card part of TS Tracker 2
+is new: it was checked in the emulator against the frames the TPI ROM
+itself sends, but had not yet met a real TS-PICO when this manual was
+written, so treat an empty directory after **P** as something to report
+rather than as an empty card.
 
 # The pattern editor
 
@@ -355,6 +405,11 @@ any key, and the song is written as one CODE block named `NAME    nn`, where
 you never overwrite the previous take. Before writing, the program tidies the
 song: any channel streams that became identical are stored once.
 
+On a TS-PICO in SD mode there is no recording prompt: the block goes into
+the mounted `.tap`, or --- when the song came from the SD-card browser --- the
+title reads `SAVE TO SD CARD` and the song is written as a raw `.pt3` file of
+that name in the card's current folder.
+
 The saved file is an ordinary PT3: the TS Tracker Player plays it from tape,
 and it loads straight into Vortex Tracker II on a PC.
 
@@ -414,6 +469,9 @@ SYM + `H` shows every key on one screen. Any key returns to the editor.
 CAPS + `5` `6` `7` `8` move; `Z S X D C V G B H N J M` piano; `1`--`8` octave;
 ENTER rest; SPACE clear; on a field, its value.
 
+**Directory:** CAPS + `6` `7` select; ENTER or `1`--`9` load; `R` rescan;
+`N` new; `Q` back. **Start screen:** `S` tape, `P` SD card, `N` new, `Q` quit.
+
 **Everywhere:** CAPS + SPACE (BREAK) cancels a prompt or a tape load.
 
 # Limits and notes
@@ -432,6 +490,9 @@ ENTER rest; SPACE clear; on a field, its value.
   shape; set the shape before the period.
 - Instruments are limited to 64 lines. Samples 1--31 and ornaments 1--15 are
   editable; ornament 0 is the "no ornament" ornament every song has.
+- The tape directory holds 64 entries. On a TS-PICO the raw-file browser
+  shows the current folder only; change folders from BASIC
+  (`SAVE "TPI:CD name"`) before loading the editor.
 
 # Credits
 
