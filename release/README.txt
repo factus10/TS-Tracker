@@ -1,4 +1,4 @@
-TS Tracker -- prebuilt tapes (v2.0)
+TS Tracker -- prebuilt tapes (v2.1)
 ===================================
 
 Two apps for the Timex/Sinclair 2068. Both are standard Spectrum-format
@@ -20,8 +20,8 @@ command line.
   songs.tap
       Six PT2/PT3 chiptunes (the ones in songs/ in the source repo),
       one CODE block per song. Insert AFTER the editor or player has
-      booted, then press S to scan it. The editor loads PT3 songs only;
-      the player plays both formats.
+      booted, then press S to scan it. The editor converts PT2 songs to
+      PT3 as they load; the player plays both formats.
 
   TS-Tracker-2-Manual.pdf / .md
       The user manual for the editor.
