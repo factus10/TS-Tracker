@@ -106,8 +106,9 @@ backlog were resolved by, or moved into, TS Tracker 2.
       `U` cycles a new **Noise** mode (Oct/Vol/Smp/Orn/**Noi**) to author it (2-hex
       0-31) on any note/rest cell. Insert/delete/clear keep FX row-aligned.
       Verified: author noise 0x15 on a C-4 -> rebuilt slot = `35 74 D0`.
-- [~] **Phase 3b — pattern-FX: hardware envelope** — IMPLEMENTED but DEFERRED on
-      branch `phase3b-envelope-deferred`. Authors envelope SHAPE + 16-bit PERIOD
+- [~] **Phase 3b — pattern-FX: hardware envelope** — IMPLEMENTED but DEFERRED; its
+      branch `phase3b-envelope-deferred` (last commit `b389088`) was deleted on
+      2026-09-23 with the C editor retired. Authors envelope SHAPE + 16-bit PERIOD
       (SETENV 0xB2-0xBF) and EOff (0xB0) on the 3a FX store; `U` cycles two new
       modes EnS/EnP. It compiles and round-trips, but the code is ~1.9 KB, which
       would drop the song slot from 7168 B to ~5600-5900 B (≈ the original
