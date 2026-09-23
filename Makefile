@@ -266,8 +266,9 @@ $(BUILDDIR)/songs.tap: $(MAKEFILE_LIST) tools/songs_to_tape.py | $(BUILDDIR)
 # ---- release (downloadable zip of the prebuilt tapes + manual) --------------
 # Bundles the v2 editor, the player, the sample songs, the manuals and a
 # quick-start README into release/ts-tracker.zip, and refreshes the loose
-# copies the top-level README links. docs/manual-v2.pdf is committed
-# (regenerate it with tools in ~/dotmatrix-pdf when docs/manual-v2.md changes).
+# copies the top-level README links. docs/manual-v2.pdf is committed; regenerate
+# it from docs/ (so the screenshots/ paths resolve) with
+#   cd docs && ~/dotmatrix-pdf/dotmatrix-pdf.sh manual-v2.md manual-v2.pdf
 release: pt3-player tracker2 songs-tape
 	@rm -rf $(BUILDDIR)/release && mkdir -p $(BUILDDIR)/release
 	cp $(V2DIR)/tracker2.tap $(BUILDDIR)/pt3-player.tap $(BUILDDIR)/songs.tap $(BUILDDIR)/release/

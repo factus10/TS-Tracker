@@ -297,9 +297,9 @@ byte-identical output by `tools/v2_codec_test.py`.
   pattern editor field by field, commands and their parameters, row globals, the
   arrangement editor, song info, the instrument editors with a "making different
   sounds" cookbook, playback, saving, a first-tune walkthrough, key reference, limits).
-  `docs/manual-v2.pdf` is the dot-matrix print version (generated from a copy without
-  the figures: pandoc 3.8 wraps images in `\pandocbounded`, which the print template
-  does not define). `tools/v2_shots.py` captures every screen for the docs. README and
+  `docs/manual-v2.pdf` is the dot-matrix print version with the figures (the print
+  template gained pandoc-3 compatibility: `calc` for wrapped table columns and pandoc's
+  `\pandocbounded` image macro). `tools/v2_shots.py` captures every screen for the docs. README and
   TODO now describe v2 as the editor; the C editor's status text moved to a history
   section.
 - **Release.** `make release` bundles `tracker2.tap`, `pt3-player.tap`, `songs.tap`, the
