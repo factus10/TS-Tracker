@@ -88,9 +88,15 @@ cmd_arrange:
         call    redraw_all
         jp      editor_loop
 
-; ar_move: A = signed delta -> clamp to 0..npos-1, redraw
+; ar_move: A = signed delta -> clamp to 0..npos-1; repaint the cell the cursor
+; left and the one it landed on (the whole page only when it crossed a page
+; boundary) and the info line -- never the whole screen
 ar_move:
         ld      hl,ar_cur
+        ld      c,a
+        ld      a,(hl)
+        ld      (ar_prev),a
+        ld      a,c
         bit     7,a
         jr      z,.fwd
         neg                             ; A = |delta|
@@ -114,7 +120,17 @@ ar_move:
 .set:   ld      (hl),a
         xor     a
         ld      (ar_typed),a
-        jp      ar_draw_all
+        ld      a,(ar_cur)
+        ld      hl,ar_top
+        sub     (hl)
+        jp      c,ar_draw_page          ; off the page shown: draw the new page
+        cp      AR_PAGE
+        jp      nc,ar_draw_page
+        ld      a,(ar_prev)
+        call    ar_cell                 ; plain again
+        ld      a,(ar_cur)
+        call    ar_cell                 ; inverted
+        jp      ar_draw_info
 
 ; ar_pos_addr: HL -> position byte at (ar_cur). Preserves A (callers hold a value in it).
 ar_pos_addr:
@@ -151,13 +167,21 @@ ar_digit:
         call    ar_pos_addr
         ld      (hl),a
         call    set_modified            ; (after the store: it clobbers A)
-        jp      ar_draw_all
+        ld      a,(ar_cur)
+        call    ar_cell                 ; the new pattern number in this cell
+        jp      ar_draw_info            ; and on the info line
 
 ar_loop_here:
         call    set_modified
+        ld      a,(SLOT_BASE+H_LOOP)
+        push    af
         ld      a,(ar_cur)
         ld      (SLOT_BASE+H_LOOP),a
-        call    ar_draw_all
+        pop     af
+        call    ar_cell                 ; the old loop position loses its marker
+        ld      a,(ar_cur)
+        call    ar_cell                 ; this one gets it
+        call    ar_draw_info
         jp      cmd_arrange.loop
 
 ar_insert:
@@ -182,7 +206,7 @@ ar_insert:
         jr      c,.nl
         inc     a
         ld      (SLOT_BASE+H_LOOP),a
-.nl:    call    ar_draw_all
+.nl:    call    ar_draw_page
         jp      cmd_arrange.loop
 
 ar_delete:
@@ -215,7 +239,7 @@ ar_delete:
         dec     a
         ld      (ar_cur),a
 .cok:   call    calc_num_pats
-        call    ar_draw_all
+        call    ar_draw_page
         jp      cmd_arrange.loop
 
 ; ar_newpat: append a 6-byte table entry + an empty 64-row stream, point the
@@ -279,7 +303,7 @@ ar_newpat:
         add     a,b                     ; *3
         call    ar_pos_addr
         ld      (hl),a
-        call    ar_draw_all
+        call    ar_draw_page
         jp      cmd_arrange.loop
 
 ar_noroom:
@@ -395,6 +419,8 @@ buf_to_dec2:
         ret
 
 ; ---- drawing -------------------------------------------------------------------
+; ar_draw_all: everything -- on entry and after a prompt or message used the
+; hint row. Moves, typing and edits repaint only what they changed (below).
 ar_draw_all:
         call    cls
         ld      bc,(1<<8)|0
@@ -407,11 +433,38 @@ ar_draw_all:
         ld      hl,s_hint_ar2
         ld      a,A_LABEL
         call    print_at
-        ; info line
         ld      bc,(2<<8)|0
         ld      hl,s_ar_info
         ld      a,A_LABEL
         call    print_at
+        ; fallthrough
+; ar_draw_page: the 60 cells of the page holding the cursor, then the info line.
+; No cls: every cell, blank ones included, overwrites what was there.
+ar_draw_page:
+        ld      a,(ar_cur)              ; top = (ar_cur / 60) * 60
+        ld      c,0
+.t2:    cp      AR_PAGE
+        jr      c,.t3
+        sub     AR_PAGE
+        push    af
+        ld      a,c
+        add     a,AR_PAGE
+        ld      c,a
+        pop     af
+        jr      .t2
+.t3:    ld      a,c
+        ld      (ar_top),a
+        ld      b,AR_PAGE
+.cell:  push    bc
+        ld      a,(ar_top)
+        add     a,AR_PAGE
+        sub     b                       ; top + 0 .. top + 59
+        call    ar_cell
+        pop     bc
+        djnz    .cell
+        ; fallthrough
+; ar_draw_info: the values on row 2: Pos cur/npos  Pat p of n  Loop l
+ar_draw_info:
         ld      a,2
         ld      c,4
         call    scr_addr
@@ -438,28 +491,19 @@ ar_draw_all:
         ld      bc,(2<<8)|0
         ld      e,32
         ld      a,A_VALUE
-        call    fill_attr
-        ; page: top = (ar_cur / 60) * 60
-        ld      a,(ar_cur)
-        ld      c,0
-.t2:    cp      AR_PAGE
-        jr      c,.t3
-        sub     AR_PAGE
-        push    af
-        ld      a,c
-        add     a,AR_PAGE
-        ld      c,a
-        pop     af
-        jr      .t2
-.t3:    ld      a,c
-        ld      (ar_top),a
-        ; cells: index B = 0..59 -> row B/5, col B%5 -> screen (AR_ROW0+row, 1+col*6)
-        ld      b,0
-.cell:  push    bc
-        ld      a,(ar_top)
-        add     a,b
-        ld      (ar_tmp2),a             ; position index (may be >= npos)
-        ld      a,b
+        jp      fill_attr
+
+; ar_cell: A = position index -> its "pp:PP" cell, if it is on the page shown:
+; index B = 0..59 -> row B/5, col B%5 -> screen (AR_ROW0+row, 1+col*6); text,
+; then attributes: inverted at the cursor, the ':' of the loop position in
+; bright yellow; an index past the end of the list is blanked.
+ar_cell:
+        ld      (ar_tmp2),a
+        ld      hl,ar_top
+        sub     (hl)
+        ret     c                       ; before the page
+        cp      AR_PAGE
+        ret     nc                      ; after it
         ld      c,0
 .rc:    cp      AR_COLS
         jr      c,.rcok
@@ -506,21 +550,18 @@ ar_draw_all:
 .pa:    ld      (hl),a
         inc     hl
         djnz    .pa
-        ; loop marker: the ':' of the loop position in bright yellow
         ld      a,(ar_tmp2)
         ld      c,a
         ld      a,(SLOT_BASE+H_LOOP)
         cp      c
-        jr      nz,.next
+        ret     nz
         dec     hl
         dec     hl
         dec     hl
-        ld      (hl),A_MENU_HOT
-        jr      .next
-.blank: pop     hl
-.next:  pop     bc
-        inc     b
-        ld      a,b
-        cp      AR_PAGE
-        jp      nz,.cell
+        ld      (hl),A_MENU_HOT         ; loop marker
         ret
+.blank: ld      b,5
+        call    put_spaces
+        pop     hl
+        xor     a                       ; black (an index past the end is never the loop)
+        jr      .paint

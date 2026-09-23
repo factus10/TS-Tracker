@@ -46,6 +46,15 @@ def main():
     def check(cond, what):
         nonlocal ok
         print(("  OK   " if cond else "  FAIL ") + what); ok &= bool(cond)
+    def attr(row, col):
+        return rd(0x5800 + row * 32 + col, 1)[0]
+    def glyph(row, col):
+        base = 0x4000 | ((row & 0x18) << 8) | ((row & 7) << 5) | col
+        return bytes(rd(base + (y << 8), 1)[0] for y in range(8))
+    def rom_glyph(ch):
+        return rd(0x3C00 + ord(ch) * 8, 8)
+    def shows(row, col, text):
+        return all(glyph(row, col + i) == rom_glyph(ch) for i, ch in enumerate(text))
     try:
         for _ in range(40):
             try:
@@ -64,12 +73,23 @@ def main():
         print(f"booted: {npos0} positions, {npats0} patterns")
         # ---- arrangement editor
         z.press("sym_f", settle=1.0); z.shot(out / "01_arrange.png")
+        # cursor moves repaint only the two cells and the info line (no cls): the
+        # title stays, the old cell goes plain, the new one inverts, Pos follows
+        check(attr(4, 1) == 0x78 and attr(4, 7) == 0x07 and shows(2, 4, "00"), "cursor on position 0")
+        z.press("right", settle=0.4)
+        check(attr(4, 1) == 0x07 and attr(4, 7) == 0x78 and shows(2, 4, "01") and shows(1, 0, "ARRANGEMENT"),
+              "CAPS+8: cell 0 plain, cell 1 inverted, Pos 01, title untouched")
+        z.press("down", settle=0.4)
+        check(attr(4, 7) == 0x07 and attr(5, 7) == 0x78 and shows(2, 4, "06"), "CAPS+6: down a row to position 6")
+        z.press("up", settle=0.4); z.press("left", settle=0.4)
+        check(attr(4, 1) == 0x78 and attr(5, 7) == 0x07 and attr(4, 7) == 0x07 and shows(2, 4, "00"), "CAPS+7, CAPS+5: back on position 0")
         z.press("5", settle=0.6)                          # pattern 5 at position 0
         check(rd(SLOT + 201, 1)[0] == 15, "typed pattern 5 at position 0")
         z.press("i", settle=0.8)                          # insert (duplicate) before cursor
         check(rd(SLOT + 101, 1)[0] == npos0 + 1 and rd(SLOT + 201, 2) == bytes([15, 15]), "insert duplicated position 0")
         z.press("l", settle=0.6)                          # loop here (position 0)
         check(rd(SLOT + 102, 1)[0] == 0, "loop set to position 0")
+        check(attr(4, 3) == 0x46 and shows(2, 29, "00"), "loop marker on cell 0's colon, Loop 00 on the info line")
         z.shot(out / "02_after_insert.png")
         z.press("x", settle=0.8)                          # delete position 0 again
         check(rd(SLOT + 101, 1)[0] == npos0 and rd(SLOT + 201, 1)[0] == 15, "delete restored the count")
@@ -81,6 +101,17 @@ def main():
         z.press("caps0", settle=0.3); z.press("caps0", settle=0.3)
         z.press("3", settle=0.3); z.press("2", settle=0.3); z.press("enter", settle=1.2)
         z.shot(out / "04_after_length.png")
+        # page crossing: pretend the list has 120 positions, walk the cursor onto page 2
+        # and back (the whole page is repainted only then), then restore the count
+        npos_now = rd(SLOT + 101, 1)[0]
+        z.cmd(f"write-memory-raw {SLOT + 101} 78")
+        for _ in range(12): z.press("down", settle=0.25)
+        check(rd(S["ar_top"], 1)[0] == 60 and rd(S["ar_cur"], 1)[0] == 60 and shows(4, 1, "60:") and attr(4, 1) == 0x78 and shows(2, 4, "60"),
+              "12 x down: page 2 drawn, cursor on 60")
+        z.shot(out / "04b_page2.png")
+        for _ in range(12): z.press("up", settle=0.25)
+        check(rd(S["ar_top"], 1)[0] == 0 and shows(4, 1, "00:") and attr(4, 1) == 0x78 and attr(5, 1) == 0x07, "12 x up: page 1 again, cursor on 0")
+        z.cmd(f"write-memory-raw {SLOT + 101} {npos_now:02x}")
         z.press("enter", settle=1.5)                      # back to the editor at position 0 (the new pattern)
         z.shot(out / "05_editor_newpat.png")
         wl = rd(S["wp_len"], 1)[0]; wp_pat = rd(S["wp_pat"], 1)[0]

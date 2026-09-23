@@ -142,6 +142,7 @@ pt_col:        db 0
 
 ; ---- arrangement editor ----
 ar_cur:        db 0
+ar_prev:       db 0                     ; where the cursor was before a move
 ar_typed:      db 0
 ar_top:        db 0
 ar_tmp:        dw 0
