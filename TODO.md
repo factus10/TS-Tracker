@@ -44,7 +44,7 @@
 
 ## Verification recipe
 
-`make tracker2` and `make tracker2-demo SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"`,
+`make tracker2`, `make songs-tape` and `make tracker2-demo SONG="songs/3BIT - Kenotron - KENO50 (Paradox version).pt3"`,
 then `tools/v2_codec_test.py`, `tools/v2_arrange_test.py <dir>`,
 `tools/v2_instr_test.py <dir>`, `tools/v2_phase4_test.py <dir>`,
 `tools/v2_phase6_test.py <dir>`, `tools/v2_pt2_test.py`,

@@ -26,7 +26,7 @@ def main():
     S = H.load_syms(ROOT / "build/v2/tracker2.sym")
     code = (ROOT / "build/v2/tracker2.bin").read_bytes()
     SLOT, SLOT_END = S["SLOT_BASE"], S["SLOT_END"]
-    tpl = (ROOT / "build/v2/template.bin").read_bytes()
+    tpl = P.default_template()
     proc, z = H.launch()
     ok = True
     try:

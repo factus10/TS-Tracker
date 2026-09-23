@@ -50,7 +50,7 @@ load. When it has loaded, the **start screen** appears:
 ```
           TS TRACKER 2
    PT3 editor for the TS-2068
-   v2.1  --  64K Software 2026
+   v2.2  --  64K Software 2026
 
    S  scan a song tape
    N  new song     Q  quit

@@ -1,4 +1,4 @@
-TS Tracker -- prebuilt tapes (v2.1)
+TS Tracker -- prebuilt tapes (v2.2)
 ===================================
 
 Two apps for the Timex/Sinclair 2068. Both are standard Spectrum-format

@@ -39,12 +39,24 @@ Output layout (the on-machine converter builds the same):
 
 Usage: pt2conv.py in.pt2 out.pt3 [--template build/v2/template.bin]
 """
-import pathlib, struct, sys
+import pathlib, re, struct, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import pt3codec as C
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "build/v2/template.bin"
+
+
+def default_template():
+    """The new-song template (asm/v2/template.inc): build/v2/template.bin if one
+    is lying around, else the bytes template_pt3..template_end straight out of
+    build/v2/tracker2.bin (located through the .sym) -- so a fresh checkout only
+    needs `make tracker2`."""
+    if TEMPLATE.exists(): return TEMPLATE.read_bytes()
+    S = {m.group(1): int(m.group(2), 16) for m in
+         re.finditer(r"^([A-Za-z_][\w.]*):\s+EQU\s+0x([0-9A-Fa-f]+)", (ROOT / "build/v2/tracker2.sym").read_text(), re.M)}
+    code = (ROOT / "build/v2/tracker2.bin").read_bytes()
+    return code[S["template_pt3"] - 0x8000:S["template_end"] - 0x8000]
 
 
 class PT2:
@@ -162,7 +174,7 @@ def convert_ornament(d, ptr):
 def convert(pt2_bytes, template=None, warn=None):
     warn = warn if warn is not None else []
     song = PT2(pt2_bytes)
-    tpl = bytes(template if template is not None else TEMPLATE.read_bytes())
+    tpl = bytes(template if template is not None else default_template())
     hdr = bytearray(tpl[:201])
     hdr[13] = ord("5")                         # PT3 v3.5: PTxPlay's PT2 portamento behaviour
     hdr[30:62] = (song.name + b"  ")[:32]
